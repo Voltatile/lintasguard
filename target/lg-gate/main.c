@@ -243,8 +243,15 @@ static int on_gate_cmd(message_context_t *ctp, int code, unsigned flags, void *h
         (void)MsgError(ctp->rcvid, EINVAL);
         return 0;
     }
-    logf_(SLOG2_INFO, "GATE_CMD %u from pid %d: state %s -> %s", (unsigned)cmd->cmd,
-          (int)ctp->info.pid, lg_gate_state_name(prev_state), lg_gate_state_name(g_model.state));
+    /*
+     * Only a command that changes the state is logged: the controller repeats LOWER or RAISE every
+     * tick (the watchdog keepalive), and a line per command would overwrite the ring buffer of
+     * slog2 within seconds, the watchdog lines included.
+     */
+    if (g_model.state != prev_state) {
+        logf_(SLOG2_INFO, "GATE_CMD %u from pid %d: state %s -> %s", (unsigned)cmd->cmd,
+              (int)ctp->info.pid, lg_gate_state_name(prev_state), lg_gate_state_name(g_model.state));
+    }
 
     memset(&rep, 0, sizeof rep);
     fill_hdr(&rep.hdr, LG_MSG_GATE_STATE);
