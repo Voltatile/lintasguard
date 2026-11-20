@@ -3,7 +3,8 @@
 
 int lg_vsensor_usable(const lg_vsensor_t *s) {
     /* Fail closed: only OK and WARNING are usable, any other value is treated as FAILED. */
-    return (s->verdict == LG_VERDICT_OK || s->verdict == LG_VERDICT_WARNING) && s->fresh;
+    return (s->verdict == LG_VERDICT_OK || s->verdict == LG_VERDICT_WARNING) && s->fresh &&
+           s->quality >= LG_SENSOR_QUALITY_USABLE_MIN;
 }
 
 lg_vote_t lg_vote_direction(const lg_vdir_t *d) {

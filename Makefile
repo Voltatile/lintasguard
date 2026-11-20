@@ -13,7 +13,7 @@ HDRS     := $(wildcard common/include/*.h core/include/*.h target/include/*.h te
 TARGET_INC  := $(CORE_INC) -Itarget/include
 # Strict -std=c11 hides the POSIX/QNX declarations in the SDP headers; _QNX_SOURCE brings them back.
 QNX_DEFS    := -D_QNX_SOURCE
-TARGET_BINS := $(BUILD)/target/lg-stub $(BUILD)/target/lg-gate $(BUILD)/target/lg-gate-test $(BUILD)/target/lg-prio-demo
+TARGET_BINS := $(addprefix $(BUILD)/target/,lg-stub lg-gate lg-gate-test lg-prio-demo lg-plant lg-sensor lgctl lg-sample-sink lg-jitter lg-chan-demo)
 
 .PHONY: host test lint target image deploy evidence clean
 
@@ -53,6 +53,24 @@ $(BUILD)/target/lg-gate-test: $(wildcard target/tools/lg-gate-test/*.c) core/gat
 $(BUILD)/target/lg-prio-demo: $(wildcard target/tools/lg-prio-demo/*.c) $(HDRS)
 	$(call qcc_build,)
 
+$(BUILD)/target/lg-plant: $(wildcard target/lg-plant/*.c) core/plant_model.c core/scenario.c core/json_mini.c $(HDRS)
+	$(call qcc_build,-lslog2)
+
+$(BUILD)/target/lg-sensor: $(wildcard target/lg-sensor/*.c) core/sensor_model.c core/metrics.c $(HDRS)
+	$(call qcc_build,-lslog2)
+
+$(BUILD)/target/lgctl: $(wildcard target/lgctl/*.c) core/sensor_model.c $(HDRS)
+	$(call qcc_build,)
+
+$(BUILD)/target/lg-sample-sink: $(wildcard target/tools/lg-sample-sink/*.c) $(HDRS)
+	$(call qcc_build,)
+
+$(BUILD)/target/lg-jitter: $(wildcard target/tools/lg-jitter/*.c) $(HDRS)
+	$(call qcc_build,)
+
+$(BUILD)/target/lg-chan-demo: $(wildcard target/tools/lg-chan-demo/*.c) $(HDRS)
+	$(call qcc_build,)
+
 image:
 	@echo "Run in CMD: call E:\\code\\Heketon\\QNX\\qnx-env.cmd && image\\build_vm.cmd"
 
@@ -61,9 +79,9 @@ deploy: target
 	bash scripts/deploy.sh $(IP)
 
 evidence: target
-	@test -n "$(IP)" || { echo "usage: make evidence IP=<vm-ip>"; exit 1; }
+	@test -n "$(IP)" || { echo "usage: make evidence IP=<vm-ip> [TESTS=\"step06_sensors ...\"]"; exit 1; }
 	bash scripts/deploy.sh $(IP)
-	bash scripts/collect_evidence.sh $(IP)
+	bash scripts/collect_evidence.sh $(IP) $(TESTS)
 
 clean:
 	rm -rf $(BUILD)

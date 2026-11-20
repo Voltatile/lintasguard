@@ -6,6 +6,7 @@ static lg_vsensor_t sensor(uint8_t verdict, uint8_t fresh, uint8_t occupied) {
     s.verdict = verdict;
     s.fresh = fresh;
     s.occupied = occupied;
+    s.quality = 100;
     return s;
 }
 
@@ -242,7 +243,39 @@ static void test_clearing_wrap(void) {
     CHECK(lg_clear_step(&c, &cfg, &in) == 0);
 }
 
+static void test_quality(void) {
+    lg_vsensor_t ok = sensor(LG_VERDICT_OK, 1, 0);
+    lg_vsensor_t blind = sensor(LG_VERDICT_OK, 1, 0);
+    lg_vsensor_t weak = sensor(LG_VERDICT_WARNING, 1, 1);
+    lg_clear_cfg_t cfg = lg_clear_cfg_default();
+    lg_clear_t c;
+    lg_clear_in_t in = good_input();
+
+    /* A blind sensor (quality 0) reports a clear track, but it is not usable. */
+    blind.quality = 0;
+    CHECK(!lg_vsensor_usable(&blind));
+    CHECK(lg_vote_direction(&(lg_vdir_t){blind, blind}).detection == LG_DET_NONE);
+    CHECK(lg_vote_direction(&(lg_vdir_t){blind, ok}).detection == LG_DET_TRUSTED);
+
+    /* Quality 1 is the lowest usable value; a noisy WARNING sensor is still used. */
+    weak.quality = 1;
+    CHECK(lg_vsensor_usable(&weak));
+    CHECK(lg_vote_direction(&(lg_vdir_t){weak, ok}).approaching);
+    weak.quality = 0;
+    CHECK(!lg_vsensor_usable(&weak));
+    CHECK(!lg_vote_direction(&(lg_vdir_t){weak, ok}).approaching); /* its occupied=1 is not trusted either */
+
+    /* A blind island sensor never counts as clear, whatever it reports. */
+    in.island = blind;
+    lg_clear_init(&c);
+    CHECK(settled(&c, &cfg, in) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    in.island = ok;
+    lg_clear_init(&c);
+    CHECK(settled(&c, &cfg, in) == 0);
+}
+
 int main(void) {
+    test_quality();
     test_activation();
     test_margin();
     test_clearing();

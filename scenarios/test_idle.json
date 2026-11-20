@@ -1,0 +1,6 @@
+{
+  "name": "test_idle",
+  "trains": [
+    { "id": 1, "dir": "west", "t_strike_s": 3000, "speed_mps": 30, "length_m": 120, "axles": 8 }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "name": "test_short",
+  "trains": [
+    { "id": 1, "dir": "west", "t_strike_s": 5, "speed_mps": 30, "length_m": 120, "axles": 8 },
+    { "id": 2, "dir": "east", "t_strike_s": 30, "speed_mps": 30, "length_m": 120, "axles": 6 }
+  ]
+}

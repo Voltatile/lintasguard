@@ -11,7 +11,7 @@
 
 #include <stdint.h>
 
-#define LG_PROTO_VERSION 2
+#define LG_PROTO_VERSION 3
 
 /*
  * Message types start above 0x1FF: QNX reserves 0x000 to 0x1FF for kernel and I/O messages
@@ -31,7 +31,9 @@ typedef enum {
     LG_MSG_SCHED_REPLY = LG_MSG_BASE + 7,
     LG_MSG_EVENT = LG_MSG_BASE + 8,
     LG_MSG_GUARD_ACK = LG_MSG_BASE + 9,
-    LG_MSG_ACK = LG_MSG_BASE + 10 /* generic reply to a MsgSend: status 0 = accepted */
+    LG_MSG_ACK = LG_MSG_BASE + 10, /* generic reply to a MsgSend: status 0 = accepted */
+    LG_MSG_TRUTH_QUERY = LG_MSG_BASE + 11, /* sensor to plant: what does my sensor see now */
+    LG_MSG_TRUTH_REPLY = LG_MSG_BASE + 12  /* plant to sensor: ground truth for one sensor */
 } lg_msg_type_t;
 
 /*
@@ -245,6 +247,27 @@ typedef struct {
     uint32_t reserved;
 } lg_ack_t;
 
+/* Ground truth. Only the sensors ask for it; the controller never sees it (README 4.2). */
+typedef struct {
+    lg_hdr_t hdr;
+    uint8_t dir; /* lg_dir_t of the sensor */
+    uint8_t id;  /* lg_sensor_id_t of the sensor */
+    uint8_t reserved[2];
+    uint32_t reserved2;
+} lg_truth_query_t;
+
+typedef struct {
+    lg_hdr_t hdr;
+    uint8_t dir;
+    uint8_t id;
+    uint8_t occupied;   /* a train is over this sensor now (direction aware, see lg_plant_model.h) */
+    uint8_t island_any; /* any train is on the island (for metrics, not used by sensors) */
+    uint16_t axle_count; /* cumulative axles counted by this sensor */
+    uint16_t reserved;
+    uint32_t plant_time_ms; /* scenario time of this answer */
+    uint32_t reserved2;
+} lg_truth_reply_t;
+
 _Static_assert(sizeof(lg_hdr_t) == 16, "lg_hdr_t size");
 _Static_assert(sizeof(lg_sensor_sample_t) == 24, "lg_sensor_sample_t size");
 _Static_assert(sizeof(lg_gate_cmd_msg_t) == 24, "lg_gate_cmd_msg_t size");
@@ -256,5 +279,7 @@ _Static_assert(sizeof(lg_sched_reply_t) == 32, "lg_sched_reply_t size");
 _Static_assert(sizeof(lg_event_t) == 96, "lg_event_t size");
 _Static_assert(sizeof(lg_guard_ack_t) == 64, "lg_guard_ack_t size");
 _Static_assert(sizeof(lg_ack_t) == 24, "lg_ack_t size");
+_Static_assert(sizeof(lg_truth_query_t) == 24, "lg_truth_query_t size");
+_Static_assert(sizeof(lg_truth_reply_t) == 32, "lg_truth_reply_t size");
 
 #endif /* LG_PROTO_H */

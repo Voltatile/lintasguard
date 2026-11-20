@@ -10,9 +10,12 @@
 #define LG_NAME_HEALTH "lg/health"
 #define LG_NAME_SCHEDULE "lg/schedule"
 #define LG_NAME_BRIDGE "lg/bridge"
+#define LG_NAME_PLANT "lg/plant"
+#define LG_NAME_SENSOR_FMT "lg/sensor/%s/%s" /* direction, id */
 
 /* Resource manager paths. */
 #define LG_DEV_GATE "/dev/lg/gate"
+#define LG_DEV_PLANT "/dev/lg/plant"
 #define LG_DEV_SENSOR_DIR "/dev/lg/sensor"
 #define LG_DEV_SENSOR_FMT "/dev/lg/sensor/%s/%s" /* direction, id */
 
@@ -32,6 +35,7 @@
 #define LG_PRIO_HEALTH 20
 #define LG_PRIO_SCHEDULE 15
 #define LG_PRIO_BRIDGE 10
+#define LG_PRIO_CONNECTOR 10 /* helper threads that may block while (re)connecting */
 
 /* Installed locations on the target. */
 #define LG_ETC_DIR "/etc/lintasguard"

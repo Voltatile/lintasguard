@@ -81,6 +81,37 @@ Not done or not claimed in Step 5:
 - No controller yet: `lg-gate-test` stands in for it.
 - No startup script or image baking: the gate is started by hand over ssh.
 
+## Step 6: plant and sensors
+
+| Check | Result | Verified where |
+|---|---|---|
+| `core/json_mini.c`, `scenario.c`, `plant_model.c`, `sensor_model.c` | host unit tests pass (17 test binaries in `make test`), including a 300,000-case mutation fuzz of the parser and random walks of the models against independent oracles. The `tester` agent also reported a mutation check (69 mutants, 7 survivors, all judged equivalent); the mutant copies are not archived in the repo. Host sanitizers are not available on this toolchain, so there is no automatic memory checking | Windows host |
+| `make target` | builds `lg-plant`, `lg-sensor`, `lgctl`, `lg-sample-sink`, `lg-jitter`, `lg-chan-demo` (and the Step 5 binaries) with `qcc -Vgcc_ntox86_64 -D_QNX_SOURCE -Wall -Wextra -Werror -std=c11` | Windows host, SDP 8.0 |
+| README check: `cat /dev/lg/sensor/west/a` changes as a train passes | yes: occupied readings at plant time 5234 to 9012 ms for the west train; the model puts the rise at 5001 ms and the fall at 9067 ms, and the script checks that the model time lies inside the interval the trace brackets it with. Axles 0 to 8 | **QNX 8.0 VM**, `evidence/step06_sensors.txt` |
+| README check: `lgctl sensor west/a noise 50` visibly changes the samples | yes: raw spread 46 counts healthy, 592 counts with noise 50, quality 97 to 50 | **QNX 8.0 VM** |
+| `tests/target/step06_sensors.sh` | 82 checks, 0 failed: idle state, stream, noise, stuck, dropout, hang, drift, refusals and exit codes, crash and restart of one sensor, a silent controller (SIGSTOP), controller gone and a new one found, plant gone and back, two trains (west and east, with a 1000 ms delay on `east/b`), device and worker priority 45 for all six sensors | **QNX 8.0 VM** |
+| `tests/target/step06_channels.sh` | 10 checks, 0 failed: `SIGEV_PULSE_PRIO_INHERIT` runs the receiver at the creation priority (10), an explicit priority gives 45; on an ordinary channel another process can attach and its pulse arrives as a tick, on a `_NTO_CHF_PRIVATE` channel the attach is refused | **QNX 8.0 VM**, `evidence/step06_channels.txt` |
+| Silent controller (SIGSTOP) | `cat`, `lgctl stats` of `west/a` and a read of `east/island` answered within 2 s while the controller was stopped; the ticks of `west/a` went from 4692 to 4823 in 2 s; after the controller was killed `no_controller` grew from 2498 to 2614 and a new controller was found (`connects` 4 to 5) and received samples | **QNX 8.0 VM** |
+| Sample stream (10 s, six sensors, controller stand-in) | 986 to 1000 samples per sensor, `gaps` 0 (1 on `east/a`), `reorder=0`, average sample age 25 to 78 microseconds, largest sample age 669 to 2053 microseconds | **QNX 8.0 VM** |
+| Timer baseline (`lg-jitter`, nothing else running, 10 s, real priority 45, same run) | 9 percent of the gaps over 12 ms, 11 of 1000 over 20 ms, largest gap 43249 microseconds | **QNX 8.0 VM** |
+| Tick lateness of a sensor | `west/a`: 8 percent of its ticks late in the stream phase, against 9 percent for the bare timer; 93 to 105 overruns per sensor in about 5300 ticks in the second phase | **QNX 8.0 VM** |
+| Dropout and hang | dropout 50: 163 of 328 ticks without a sample (49 percent), 185 sequence gaps seen by the sink; hang: `samples_sent` stayed at 1172 while `no_sample` went from 22 to 356, 380 gaps at the sink | **QNX 8.0 VM** |
+| Delay fault | `east/b` with delay 1000 ms followed `east/a` by 1072 ms in the trace; the script accepts 1000 minus/plus one round of the trace (the largest round was 312 ms) | **QNX 8.0 VM** |
+
+How this evidence came about (the archived files are the last of several runs):
+- The first run had 2 failing checks that were faults of the script (a check made after the sink had finished, a window that ignored the reading skew). Fixed in the script.
+- The `reviewer` found that a controller that is alive but silent could freeze the sensor. A manual experiment on the VM (SIGSTOP of the controller) confirmed it twice: first through `name_open`, then through the reply phase. The sensor was rebuilt with a worker thread and connector threads, and the experiment became part of the script.
+- After that rebuild the script failed 4 checks that I first put down to VM jitter. A second review then found the real cause of part of it: the worker, and my jitter baseline, ran at priority 10 instead of 45, because a timer pulse made with `SIGEV_PULSE_PRIO_INHERIT` gives the receiver the priority the process was created with. This was measured on the VM (`evidence/step06_channels.txt`), the pulse priority was made explicit, the worker priority is now read back and checked, and the baseline was measured again at a real 45. Numbers from the version that ran at 10 were discarded.
+- The same review showed that another process could attach to the worker channel and fake a tick; the channel is now `_NTO_CHF_PRIVATE`, also measured.
+- Some checks were changed from fixed numbers to what the code can guarantee: transition times are bracketed by the trace itself, overruns and sequence gaps are compared with the bare-timer baseline of the same run, the average sample age is asserted and the largest one is reported.
+- The README 10.3 limit of 20 ms for the sample age was met in the recorded run (largest 2053 microseconds) but cannot be guaranteed on this VM: the bare timer alone had a gap of 43 ms in that run.
+
+Not done or not claimed in Step 6:
+- The controller does not exist yet: `lg-sample-sink` plays it. `lgctl` only has the sensor subcommands.
+- A server that has received a sensor message and never replies blocks the sensor worker; the device still answers. Step 8 restarts silent processes. The timeout path of `TimerTimeout` was not provoked deterministically (`timeouts=0` in the recorded run).
+- Access gaps as for the gate (Step 13), plus: any process can register `lg/plant` or `lg/controller`.
+- Open decisions for Step 7 and Step 8 are in the Decisions log (truth for the metrics, island redundancy, HANG versus heartbeat, a plant restart replaying the scenario, how a controller refuses a sample).
+
 ## Known gaps
 
 - `clang-format` missing on the host (format check skipped in `make lint`).

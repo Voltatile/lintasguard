@@ -12,6 +12,7 @@
 typedef struct {
     uint8_t verdict;  /* lg_verdict_t from lg-health */
     uint8_t fresh;    /* sample younger than LG_SAMPLE_MAX_AGE_MS */
+    uint8_t quality;  /* 0..100 from the sample; 0 = blind (no truth, fully noisy), never usable */
     uint8_t occupied; /* last sample */
 } lg_vsensor_t;
 
@@ -30,7 +31,11 @@ typedef struct {
     uint8_t approaching; /* any usable approach sensor reports occupied */
 } lg_vote_t;
 
-/* A sensor is usable when it is not FAILED and its sample is fresh. WARNING is still used. */
+/*
+ * A sensor is usable when it is OK or WARNING, its sample is fresh and its quality is at least
+ * LG_SENSOR_QUALITY_USABLE_MIN. A blind sensor reports occupied 0 with quality 0: without this rule
+ * it would count as a clear track until the health monitor (Step 11) reacts.
+ */
 int lg_vsensor_usable(const lg_vsensor_t *s);
 
 lg_vote_t lg_vote_direction(const lg_vdir_t *d);

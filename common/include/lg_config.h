@@ -23,6 +23,19 @@
 #define LG_GATE_CURRENT_HOLD_MA 50    /* initial: holding current at the end position */
 #define LG_GATE_FAULT_TIMEOUT_FACTOR 3 /* initial: a movement taking this many times nominal is a FAULT */
 
+/* Sensors (lg-sensor) and plant (lg-plant). */
+#define LG_SENSOR_PERIOD_MS 10       /* one sample per tick */
+#define LG_SENSOR_CLEAR_LEVEL 200    /* initial: raw level with the track clear, ADC counts */
+#define LG_SENSOR_OCCUPIED_LEVEL 800 /* initial: raw level with a train over the sensor */
+#define LG_SENSOR_THRESHOLD 500      /* raw level above this reads as occupied */
+#define LG_SENSOR_BASE_NOISE 3       /* initial: noise units of a healthy sensor */
+#define LG_SENSOR_QUALITY_USABLE_MIN 1 /* quality 0 means the sensor sees nothing: not usable */
+#define LG_SENSOR_COUNTS_PER_NOISE 8 /* initial: raw level amplitude per noise unit (+- counts) */
+#define LG_SENSOR_DELAY_MAX_MS 2000  /* longest injectable delay */
+#define LG_SENSOR_IPC_TIMEOUT_MS 5   /* bound for the blocking calls inside the sensor tick */
+#define LG_SENSOR_CONNECTOR_PERIOD_MS 200 /* how often a connector thread looks for a missing peer */
+#define LG_PLANT_EVENT_PERIOD_MS 50  /* how often the plant checks for train events to log */
+
 /* Mode manager. Simulated time. */
 #define LG_T_STABLE_MS 30000      /* de-escalation needs the condition clear this long */
 #define LG_T_BOOT_STABLE_MS 5000  /* initial */

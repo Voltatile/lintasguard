@@ -14,6 +14,7 @@ static lg_vsensor_t vs(uint8_t verdict, uint8_t fresh, uint8_t occupied) {
     s.verdict = verdict;
     s.fresh = fresh;
     s.occupied = occupied;
+    s.quality = 100;
     return s;
 }
 
