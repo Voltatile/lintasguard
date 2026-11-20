@@ -1,0 +1,2 @@
+QNX lintasguard 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64
+Hello from LintasGuard on QNX

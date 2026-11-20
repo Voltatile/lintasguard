@@ -1,0 +1,16 @@
+# build output
+build/
+*.o
+*.exe
+# secrets
+.env
+.env.*
+# python
+__pycache__/
+*.pyc
+.venv/
+# editor
+.vscode/
+.idea/
+# claude local settings
+.claude/settings.local.json
