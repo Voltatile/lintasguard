@@ -11,21 +11,27 @@
 
 #include <stdint.h>
 
-#define LG_PROTO_VERSION 1
+#define LG_PROTO_VERSION 2
+
+/*
+ * Message types start above 0x1FF: QNX reserves 0x000 to 0x1FF for kernel and I/O messages
+ * (_IO_MAX in sys/iomsg.h), and message_attach() only accepts types above it.
+ */
+#define LG_MSG_BASE 0x1000
 
 /* ---- Identifiers ------------------------------------------------------- */
 
 typedef enum {
-    LG_MSG_SENSOR_SAMPLE = 1,
-    LG_MSG_GATE_CMD = 2,
-    LG_MSG_GATE_STATE = 3,
-    LG_MSG_HEALTH_VERDICT = 4,
-    LG_MSG_PROC_STATUS = 5,
-    LG_MSG_SCHED_QUERY = 6,
-    LG_MSG_SCHED_REPLY = 7,
-    LG_MSG_EVENT = 8,
-    LG_MSG_GUARD_ACK = 9,
-    LG_MSG_ACK = 10 /* generic reply to a MsgSend: status 0 = accepted */
+    LG_MSG_SENSOR_SAMPLE = LG_MSG_BASE + 1,
+    LG_MSG_GATE_CMD = LG_MSG_BASE + 2,
+    LG_MSG_GATE_STATE = LG_MSG_BASE + 3,
+    LG_MSG_HEALTH_VERDICT = LG_MSG_BASE + 4,
+    LG_MSG_PROC_STATUS = LG_MSG_BASE + 5,
+    LG_MSG_SCHED_QUERY = LG_MSG_BASE + 6,
+    LG_MSG_SCHED_REPLY = LG_MSG_BASE + 7,
+    LG_MSG_EVENT = LG_MSG_BASE + 8,
+    LG_MSG_GUARD_ACK = LG_MSG_BASE + 9,
+    LG_MSG_ACK = LG_MSG_BASE + 10 /* generic reply to a MsgSend: status 0 = accepted */
 } lg_msg_type_t;
 
 /*

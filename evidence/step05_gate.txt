@@ -1,0 +1,76 @@
+=== step05_gate: Fri Nov 20 08:07:39 UTC 2026
+=== QNX lintasguard 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64
+PASS: lg-gate starts and registers name /dev/name/local/lg/gate
+PASS: pidin lists lg-gate while it runs (so the crash check below can fail)
+PASS: boot state is DOWN (gate starts down)
+PASS: boot: position 90, lights on, bell on, target DOWN
+--- cat /dev/lg/gate:
+state=DOWN position=90 current_ma=50 travel_ms=0 fault=NONE factor_pct=100 lights=1 bell=1 target=DOWN watchdog_trips=0 rejected=0
+PASS: raise command accepted, gate reaches UP
+--- cat /dev/lg/gate (UP):
+state=UP position=0 current_ma=50 travel_ms=4004 fault=NONE factor_pct=100 lights=1 bell=1 target=UP watchdog_trips=0 rejected=0
+PASS: raise travel time within 10 percent of nominal 4000 ms (got 4004 ms)
+PASS: UP is held while heartbeats keep coming (3 s, no watchdog trip)
+--- stats: state=UP target=1 position_mdeg=0 current_ma=50 last_travel_ms=4004 fault=NONE fault_pct=100 watchdog_trips=0 rejected=0 ticks=724 sched_policy=1 sched_priority=48
+PASS: lg-gate runs SCHED_FIFO priority 48, read back by the process itself
+--- write attempt:
+dd: /dev/lg/gate: write error: Operation not permitted
+1+0 records in
+0+0 records out
+0 bytes (0 B) copied, 0.001 s, 0 B/s
+PASS: writing to /dev/lg/gate is refused (dd exits non-zero, 0 bytes copied)
+PASS: gate still UP after the refused write
+--- kill -9 the client (pid 35397658)
+--- the gate had left UP after 2 polls of the state file: state=LOWERING
+PASS: gate leaves UP after the client dies (sanity poll, not a timed bound)
+PASS: watchdog trip counted once
+PASS: gate reaches DOWN by itself
+--- cat /dev/lg/gate (after watchdog):
+state=DOWN position=90 current_ma=50 travel_ms=4001 fault=NONE factor_pct=100 lights=1 bell=1 target=DOWN watchdog_trips=1 rejected=0
+--- silence measured by lg-gate at the trip: 109 ms (limit 100 ms, tick 10 ms)
+PASS: watchdog tripped after 101 to 160 ms of silence (measured by the gate)
+PASS: no repeated trips once DOWN (2 s)
+PASS: lights and bell are on after the watchdog
+--- raise once with no heartbeats
+reply: state=RAISING position=90 current_ma=800 travel_ms=4001
+PASS: raise without keepalive: watchdog lowers it again (trip 2)
+PASS: gate returns to DOWN
+PASS: gate UP again before the explicit lower
+reply: state=LOWERING position=0 current_ma=800 travel_ms=4007
+PASS: explicit lower command reaches DOWN
+fault slow factor_pct=150 accepted
+PASS: devctl SLOW 150 percent accepted
+PASS: slow gate still reaches UP
+PASS: slow raise takes about 1.5 x nominal (got 6005 ms, expect 5400 to 6600)
+reply: state=LOWERING position=0 current_ma=800 travel_ms=6005
+PASS: gate back DOWN after the slow cycle
+fault none factor_pct=100 accepted
+PASS: fault cleared
+PASS: devctl rejects a factor below 100 percent (exit code 3 = EINVAL)
+PASS: devctl fault through a read-only descriptor is refused (exit code 4 = EPERM)
+PASS: the refused read-only fault changed nothing
+--- raw type 0x1002: rejected, errno=22 (Invalid argument)
+--- raw type 0x2000: rejected, errno=89 (Function not implemented)
+PASS: GATE_CMD with an invalid command value is rejected
+PASS: a message of an unknown type is rejected
+PASS: rejected counter went up by one (invalid command only)
+--- slog2info, watchdog lines of this gate (the buffer set lg-gate is listed as lg_gate.<pid>):
+Nov 20 08:07:40.377               lg_gate.35266585                 main      0  up: /dev/lg/gate and name lg/gate attached, gate DOWN, watchdog 100 ms, tick 10 ms
+Nov 20 08:07:48.059               lg_gate.35266585                 main      0  watchdog: no controller command or heartbeat for 109 ms (limit 100 ms), lowering the gate (trip 1)
+Nov 20 08:07:54.290               lg_gate.35266585                 main      0  watchdog: no controller command or heartbeat for 104 ms (limit 100 ms), lowering the gate (trip 2)
+--- slog2info, last lines of this gate:
+Nov 20 08:08:03.874               lg_gate.35266585                 main      0  GATE_CMD 2 from pid 38584346: state DOWN -> RAISING
+Nov 20 08:08:09.879               lg_gate.35266585                 main      0  gate state RAISING -> UP (position 0 deg)
+Nov 20 08:08:09.934               lg_gate.35266585                 main      0  GATE_CMD 1 from pid 39624731: state UP -> LOWERING
+Nov 20 08:08:15.939               lg_gate.35266585                 main      0  gate state LOWERING -> DOWN (position 90 deg)
+Nov 20 08:08:16.044               lg_gate.35266585                 main      0  fault NONE factor 100% set through devctl
+Nov 20 08:08:16.055               lg_gate.35266585                 main      0  devctl fault rejected (mode 1 factor 50)
+Nov 20 08:08:16.060               lg_gate.35266585                 main      0  devctl fault from pid 40689690 refused: descriptor not open for writing
+Nov 20 08:08:16.082               lg_gate.35266585                 main      0  unknown GATE_CMD 99 from pid 40738842
+PASS: slog2 holds a watchdog entry of this gate process (pid 35266585)
+--- crash injection
+PASS: after CRASH the lg-gate process is gone
+PASS: after CRASH the name /dev/name/local/lg/gate is gone
+PASS: lg-gate restarts
+PASS: restarted gate comes up DOWN
+=== RESULT: 36 checks, 0 failed

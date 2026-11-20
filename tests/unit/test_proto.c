@@ -19,7 +19,12 @@ int main(void) {
     CHECK(offsetof(lg_guard_ack_t, hdr) == 0);
     CHECK(offsetof(lg_ack_t, hdr) == 0);
 
-    CHECK(LG_PROTO_VERSION == 1);
+    CHECK(LG_PROTO_VERSION == 2);
+
+    /* Types must stay above the QNX reserved range (_IO_MAX = 0x1FF in sys/iomsg.h). */
+    CHECK(LG_MSG_SENSOR_SAMPLE > 0x1FF);
+    CHECK(LG_MSG_ACK > LG_MSG_SENSOR_SAMPLE && LG_MSG_ACK <= 0xFFFF);
+    CHECK(LG_MSG_GATE_CMD != LG_MSG_GATE_STATE);
 
     /* Sensor and process numbering used by the README mapping. */
     CHECK(LG_DIR_COUNT * LG_SENSOR_ID_COUNT == LG_COMP_SENSOR_LAST + 1);

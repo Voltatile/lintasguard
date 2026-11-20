@@ -1,0 +1,20 @@
+=== step05_priority: Fri Nov 20 08:08:18 UTC 2026
+=== QNX lintasguard 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64
+--- default channel (flags 0):
+client prio=10
+server pid=41058329 chid=1 fixed_priority=0 base_prio=48
+msg 0: prio while serving=10, right after reply=10
+msg 1: prio while serving=10, right after reply=10
+msg 2: prio while serving=10, right after reply=10
+prio before the next receive=10
+PASS: default channel: the server thread drops to the client priority (10) while serving
+--- channel with _NTO_CHF_FIXED_PRIORITY:
+client prio=10
+server pid=41123865 chid=1 fixed_priority=1 base_prio=48
+msg 0: prio while serving=48, right after reply=48
+msg 1: prio while serving=48, right after reply=48
+msg 2: prio while serving=48, right after reply=48
+prio before the next receive=48
+PASS: fixed-priority channel: the server thread stays at 48 while serving
+PASS: fixed-priority channel: still 48 before the next receive
+=== RESULT: 3 checks, 0 failed

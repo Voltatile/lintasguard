@@ -17,6 +17,12 @@
 #define LG_RESTART_WINDOW_MS 10000
 #define LG_GATE_WATCHDOG_MS 100
 
+/* Gate motor simulation (lg-gate). */
+#define LG_GATE_TRAVEL_MS 4000        /* initial: nominal lowering or raising time */
+#define LG_GATE_CURRENT_MOVING_MA 800 /* initial: motor current while moving */
+#define LG_GATE_CURRENT_HOLD_MA 50    /* initial: holding current at the end position */
+#define LG_GATE_FAULT_TIMEOUT_FACTOR 3 /* initial: a movement taking this many times nominal is a FAULT */
+
 /* Mode manager. Simulated time. */
 #define LG_T_STABLE_MS 30000      /* de-escalation needs the condition clear this long */
 #define LG_T_BOOT_STABLE_MS 5000  /* initial */
