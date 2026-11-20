@@ -36,6 +36,7 @@
 #define LG_PRIO_SCHEDULE 15
 #define LG_PRIO_BRIDGE 10
 #define LG_PRIO_CONNECTOR 10 /* helper threads that may block while (re)connecting */
+#define LG_PRIO_METER 42     /* lg-meter: evaluation only, samples the gate and the plant truth */
 
 /* Installed locations on the target. */
 #define LG_ETC_DIR "/etc/lintasguard"

@@ -7,19 +7,25 @@ BUILD   := build
 CORE_SRC := $(wildcard core/*.c)
 CORE_INC := -Icore/include -Icommon/include
 UNIT_SRC := $(wildcard tests/unit/test_*.c)
-UNIT_BIN := $(patsubst tests/unit/%.c,$(BUILD)/host/%,$(UNIT_SRC))
+SCEN_SRC := $(wildcard tests/scenario/replay_*.c)
+UNIT_BIN := $(patsubst tests/unit/%.c,$(BUILD)/host/%,$(UNIT_SRC)) \
+            $(patsubst tests/scenario/%.c,$(BUILD)/host/%,$(SCEN_SRC))
 HDRS     := $(wildcard common/include/*.h core/include/*.h target/include/*.h tests/unit/*.h)
 
 TARGET_INC  := $(CORE_INC) -Itarget/include
 # Strict -std=c11 hides the POSIX/QNX declarations in the SDP headers; _QNX_SOURCE brings them back.
 QNX_DEFS    := -D_QNX_SOURCE
-TARGET_BINS := $(addprefix $(BUILD)/target/,lg-stub lg-gate lg-gate-test lg-prio-demo lg-plant lg-sensor lgctl lg-sample-sink lg-jitter lg-chan-demo)
+TARGET_BINS := $(addprefix $(BUILD)/target/,lg-stub lg-gate lg-gate-test lg-prio-demo lg-plant lg-sensor lgctl lg-sample-sink lg-jitter lg-chan-demo lg-controller lg-meter)
 
 .PHONY: host test lint target image deploy evidence clean
 
 host: $(UNIT_BIN)
 
 $(BUILD)/host/%: tests/unit/%.c $(CORE_SRC) $(HDRS)
+	@mkdir -p $(BUILD)/host
+	$(CC_HOST) $(CFLAGS) $(CORE_INC) $(filter %.c,$^) -o $@
+
+$(BUILD)/host/%: tests/scenario/%.c $(CORE_SRC) $(HDRS)
 	@mkdir -p $(BUILD)/host
 	$(CC_HOST) $(CFLAGS) $(CORE_INC) $(filter %.c,$^) -o $@
 
@@ -69,6 +75,12 @@ $(BUILD)/target/lg-jitter: $(wildcard target/tools/lg-jitter/*.c) $(HDRS)
 	$(call qcc_build,)
 
 $(BUILD)/target/lg-chan-demo: $(wildcard target/tools/lg-chan-demo/*.c) $(HDRS)
+	$(call qcc_build,)
+
+$(BUILD)/target/lg-controller: $(wildcard target/lg-controller/*.c) core/controller_logic.c core/voting.c core/mode_manager.c core/metrics.c core/gate_model.c $(HDRS)
+	$(call qcc_build,-lslog2)
+
+$(BUILD)/target/lg-meter: $(wildcard target/tools/lg-meter/*.c) core/metrics.c core/gate_model.c $(HDRS)
 	$(call qcc_build,)
 
 image:
