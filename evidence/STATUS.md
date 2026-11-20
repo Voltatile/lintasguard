@@ -1,6 +1,6 @@
 # Evidence status
 
-Updated: 2026-11-20. Commit: see `git log` (first commit = Step 1 and Step 2).
+Updated: 2026-11-20 (Step 7). Commit: see `git log` (first commit = Step 1 and Step 2).
 
 ## Step 1: Accounts and tools
 
@@ -111,6 +111,40 @@ Not done or not claimed in Step 6:
 - A server that has received a sensor message and never replies blocks the sensor worker; the device still answers. Step 8 restarts silent processes. The timeout path of `TimerTimeout` was not provoked deterministically (`timeouts=0` in the recorded run).
 - Access gaps as for the gate (Step 13), plus: any process can register `lg/plant` or `lg/controller`.
 - Open decisions for Step 7 and Step 8 are in the Decisions log (truth for the metrics, island redundancy, HANG versus heartbeat, a plant restart replaying the scenario, how a controller refuses a sample).
+
+## Step 7: `lg-controller` (level 0 and level 4) and `lg-meter`
+
+Working tree of branch `step-07-controller` (base e08420e), not committed yet: the commit hash is added when it is.
+
+| Check | Result | Verified where |
+|---|---|---|
+| `core/controller_logic.c` (verdicts, voting, clearing, gate target, lights) | host unit tests (`test_controller_logic`, `test_controller_logic_extra`, `test_controller_stale`) and the replay below pass in `make test` (21 test binaries). `test_controller_logic_extra` is from the `tester` agent: same-direction hold, two directions overlapping, level 3 and 4, silent gate, wrap of the 32-bit clock, and a seeded property test (seeds 20261120 to 20261123) with five invariants. No mutation check was archived | Windows host (gcc) |
+| Host replay `tests/scenario/replay_normal_day.c` (plant, six sensors, gate, controller, seed 20261120) | `normal_day.json`: boot release at about 5 s, 6 trains, 6 gate cycles, 0 wrong-side events. Negative control: with the old 10 s pre-warning the same replay reports wrong-side events (the metric sees them). `test_prewarning_budget` checks pre-warning + gate travel + 1 s against every train. `test_restart_sweep` restarts the controller every 997 ms over the whole day (281 runs): 0 wrong-side events; with the axle-count rule removed the same sweep fails in 4 runs | Windows host, **host only, not verified on QNX** |
+| `make target` | builds `lg-controller` and `lg-meter` (and the earlier binaries) with `qcc -Vgcc_ntox86_64 -D_QNX_SOURCE -Wall -Wextra -Werror -std=c11` | Windows host, SDP 8.0 |
+| README check: `normal_day.json` runs end to end with gate cycles for every train and 0 wrong-side events; metrics CSV produced | yes: `trains=6`, `controller_cycles=6`, `closure_count=6`, `wrong_side_events=0`, `wrong_side_ticks=0`, `trains_without_warning=0`, `plant_end_ms=285004`, the controller ends in level 0 with the gate UP. CSV in the file below | **QNX 8.0 VM**, `evidence/step07_controller.txt` |
+| `tests/target/step07_controller.sh` | 56 checks, 0 failed. Parts: boot without sensors (level 4, gate DOWN, no release without information), boot release and idle, controller killed (gate watchdog lowers the gate, new controller boots in level 4 and is released), gate stopped with SIGSTOP and 25 stop/continue cycles (the status device answers every time), plant gone (blind sensors: level 4, no release without a guard), `normal_day` with `lg-meter`. Each check is one command | **QNX 8.0 VM** |
+| Metrics of the recorded `normal_day` run | warning time (lights on until the train reaches the island) average 16291 ms, largest 19990 ms; closure per train average 14835 ms, largest 21100 ms; total closed 145956 ms of 284230 ms observed (1848649 ms per hour of observed time, including the boot closure); controller late ticks 170 of 28507 ticks (a tick more than 12 ms after the previous one) | **QNX 8.0 VM**: functional evidence, not hardware performance |
+| Coverage of the meter in that run | every one of the meter periods gave a sample (coverage 100 percent), largest gap between two samples 61 ms, `meter_plant_fail=0`, `meter_gate_fail=0` | **QNX 8.0 VM** |
+| Frozen gate | after the 25 stop/continue cycles the controller reports `gate_timeouts=746` and `gate_dropped=224`: requests piled up while the gate worker was blocked on a reply (224 were overwritten) and the main thread kept ticking and answering | **QNX 8.0 VM**, `evidence/step07_controller.txt` |
+| Scheduling | the controller reads its own policy and priority back: `sched_policy=1 sched_priority=50` | **QNX 8.0 VM** |
+
+How this evidence came about (the archived file is the last of several runs):
+- The first run had 18 failing checks. Cause: `MsgSend` returns the status given to `MsgReply`, not the reply length; the controller and the meter compared it with the size of the reply and rejected every answer of the gate. Fixed in both, and the same trap was checked in the other senders.
+- The `tester` found sensors whose samples arrive on time but are older than the usable age for good; the verdict stayed OK while the sensor was never used. The interim verdict now fails them after 200 ms in a row (`test_controller_stale`).
+- The `reviewer` found, and a repro confirmed, a wrong-side event after a controller restart while a train was between the approach zone and the island (fixed with the axle-count rule, with the sweep as regression test), a gate that answered 150 ms late removing the boot lock for good (fixed with a boot grace period), a sensor dead for more than 2^31 ms looking alive again (fixed with a latch), a meter that could pass without looking (fixed: exit 4 when the observation is incomplete), and a log of one line per gate command that overwrote the watchdog lines (fixed in `lg-gate`).
+- The first official run of the target test hung for almost an hour in part 4: a gate stopped after it had received a command froze the controller in the reply phase of `MsgSend`. That is a defect of the controller, not of the test. The gate IO now runs in a worker thread, the test runs 25 stop/continue cycles and has a 1500 s guard.
+- The Decisions log has the rows of all of these.
+- The script was changed once more after that run (the guard of the test no longer holds the ssh session open after the test has finished), so the whole target test was run again; the archived file is that last run. `tests/target/step05_gate.sh` was run again on the VM after the log change in `lg-gate` (one line only when a command changes the state): 36 checks, 0 failed. That output went to a scratch file and is NOT archived; `evidence/step05_gate.txt` is still the earlier run, made with the earlier gate binary.
+
+Not done or not claimed in Step 7:
+- No supervisor and no heartbeats (Step 8): a hung or silent controller is only handled by the gate watchdog, and a controller restart is manual.
+- Level 4 is only left by restarting the controller (boot check): there is no guard acknowledgement path yet (Step 8 and 13).
+- Level 3 (timetable) is a hold-down; the interim health verdicts are replaced by `lg-health` in Step 11.
+- A malformed or out-of-range sample sent to the controller on the target was not provoked (host unit tests only).
+- The target test uses `test_idle.json` for the boot parts and `normal_day.json` for the run; `closure_count` is accepted as 5 or 6 because the first train can arrive while the boot release is still raising the gate (the cycle count is exact).
+- The plant restart replaying the scenario (Step 6 open decision) is still open for Step 8.
+- The sender of a `GATE_CMD` or of a tick pulse is not authenticated (Step 13).
+- `deadline_ms` of `GATE_CMD` is still ignored, `lgctl status` was not added (the status is `cat /dev/lg/controller`).
 
 ## Known gaps
 
