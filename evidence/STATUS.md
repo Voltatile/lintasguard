@@ -43,6 +43,20 @@ Not done in Step 2: `clang-format` is not installed on this host, so `make lint`
 
 Not verified yet: message passing with these structs (first used in Step 5); pulse code range on the target.
 
+## Step 4: Portable core with unit tests
+
+| Check | Result | Verified where |
+|---|---|---|
+| `core/voting.c`, `mode_manager.c`, `metrics.c` (+ `health.c`, `timetable.c` stubs) | implemented, portable C11, no QNX headers, no dynamic allocation | Windows host |
+| `make test` | 7 test binaries pass: `test_proto`, `test_smoke`, `test_voting`, `test_mode_manager`, `test_metrics`, `test_core_extra`, `test_review_fixes` | Windows host (gcc 14.2.0) |
+| Mutation check by the `tester` agent | 34 of 34 mutants caught (before the review fixes); 5 more mutants checked against `test_review_fixes`, all caught | Windows host |
+| `make target` | core compiles with `qcc -Vgcc_ntox86_64 -Wall -Wextra -Werror` | Windows host, SDP 8.0 |
+| Independent review (`reviewer` agent) | 5 defects fixed (clearing without island sighting, boot lock hiding a real level 4, negative elapsed time, unknown enum values read as healthy, shared boot/guard timer), plus the guard-ack latch rule tightened; see `docs/ARCHITECTURE.md` Decisions log | Windows host |
+
+**Host only, not verified on QNX.** Step 4 has no QNX behaviour; nothing here has been run as a QNX process. The core only gets exercised on the target once the controller (Step 7) calls it.
+
+Open items carried to later steps: same-direction approach as a clearing input and sample freshness at boot (Step 7), `LG_T_INFO_TIMEOUT_MS` handling and real timetable logic (Step 12), health statistics (Step 11).
+
 ## Known gaps
 
 - `clang-format` missing on the host (format check skipped in `make lint`).

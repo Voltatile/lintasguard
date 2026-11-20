@@ -4,16 +4,7 @@
 #include "lg_config.h"
 #include "lg_names.h"
 #include "lg_proto.h"
-
-static int failures;
-
-#define CHECK(cond)                                                                                \
-    do {                                                                                           \
-        if (!(cond)) {                                                                             \
-            printf("FAIL: %s (line %d)\n", #cond, __LINE__);                                       \
-            failures++;                                                                            \
-        }                                                                                          \
-    } while (0)
+#include "lg_test.h"
 
 int main(void) {
     /* Every message starts with the header. */
@@ -49,9 +40,5 @@ int main(void) {
     CHECK(LG_TICK_MS < LG_GATE_WATCHDOG_MS);
     CHECK(LG_SCORE_OK_MIN > LG_SCORE_WARNING_MIN);
 
-    if (failures == 0) {
-        puts("PASS: test_proto");
-        return 0;
-    }
-    return 1;
+    LG_TEST_DONE("test_proto");
 }
