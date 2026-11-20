@@ -114,7 +114,7 @@ Not done or not claimed in Step 6:
 
 ## Step 7: `lg-controller` (level 0 and level 4) and `lg-meter`
 
-Working tree of branch `step-07-controller` (base e08420e), not committed yet: the commit hash is added when it is.
+Commits 9f8c1ec to d1c38e5 on branch `step-07-controller` (base e08420e). The VM run in `evidence/step07_controller.txt` was made from the working tree before it was committed; the code has not changed since (only documentation did).
 
 | Check | Result | Verified where |
 |---|---|---|
