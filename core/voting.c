@@ -24,13 +24,13 @@ lg_vote_cfg_t lg_vote_cfg_default(void) {
     return c;
 }
 
-uint32_t lg_activation_margin_ms(const lg_vote_cfg_t *cfg, uint8_t level) {
-    uint32_t ms = cfg->prewarning_ms;
-
+uint32_t lg_lower_delay_ms(const lg_vote_cfg_t *cfg, uint8_t level) {
+    /* Level 2 and above activate earlier: the gate starts lowering sooner (never below 0). */
     if (level >= LG_LEVEL_DEGRADED) {
-        ms += cfg->extra_margin_ms;
+        return cfg->prewarning_ms > cfg->extra_margin_ms ? cfg->prewarning_ms - cfg->extra_margin_ms
+                                                         : 0;
     }
-    return ms;
+    return cfg->prewarning_ms;
 }
 
 lg_clear_cfg_t lg_clear_cfg_default(void) {

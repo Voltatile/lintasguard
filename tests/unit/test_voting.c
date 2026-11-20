@@ -60,14 +60,18 @@ static void test_activation(void) {
 static void test_margin(void) {
     lg_vote_cfg_t cfg = lg_vote_cfg_default();
 
-    CHECK(lg_activation_margin_ms(&cfg, LG_LEVEL_NORMAL) == cfg.prewarning_ms);
-    CHECK(lg_activation_margin_ms(&cfg, LG_LEVEL_EARLY_WARNING) == cfg.prewarning_ms);
-    CHECK(lg_activation_margin_ms(&cfg, LG_LEVEL_DEGRADED) ==
-          cfg.prewarning_ms + cfg.extra_margin_ms);
-    CHECK(lg_activation_margin_ms(&cfg, LG_LEVEL_UNCERTAIN) ==
-          cfg.prewarning_ms + cfg.extra_margin_ms);
-    CHECK(lg_activation_margin_ms(&cfg, LG_LEVEL_FAILSAFE) ==
-          cfg.prewarning_ms + cfg.extra_margin_ms);
+    lg_vote_cfg_t big = cfg;
+
+    CHECK(lg_lower_delay_ms(&cfg, LG_LEVEL_NORMAL) == cfg.prewarning_ms);
+    CHECK(lg_lower_delay_ms(&cfg, LG_LEVEL_EARLY_WARNING) == cfg.prewarning_ms);
+    /* Level 2 and above activate earlier: shorter delay, never below 0, never longer than level 0. */
+    CHECK(lg_lower_delay_ms(&cfg, LG_LEVEL_DEGRADED) <= lg_lower_delay_ms(&cfg, LG_LEVEL_NORMAL));
+    CHECK(lg_lower_delay_ms(&cfg, LG_LEVEL_FAILSAFE) == lg_lower_delay_ms(&cfg, LG_LEVEL_DEGRADED));
+    big.prewarning_ms = 8000;
+    big.extra_margin_ms = 3000;
+    CHECK(lg_lower_delay_ms(&big, LG_LEVEL_DEGRADED) == 5000);
+    big.extra_margin_ms = 9000; /* margin above the pre-warning: floor 0, no wrap-around */
+    CHECK(lg_lower_delay_ms(&big, LG_LEVEL_UNCERTAIN) == 0);
 }
 
 /* A clearing input where every condition is met at t = 10000 ms. */

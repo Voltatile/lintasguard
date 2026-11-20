@@ -47,8 +47,12 @@ typedef struct {
 
 lg_vote_cfg_t lg_vote_cfg_default(void);
 
-/* Pre-warning time before the gate lowers, for the current level. */
-uint32_t lg_activation_margin_ms(const lg_vote_cfg_t *cfg, uint8_t level);
+/*
+ * Time from "lights on" until the gate is commanded to lower, for the current level. In level 2 and
+ * above the extra margin SHORTENS it (activate earlier), floor 0: a longer delay would let a fast
+ * train reach the island before the gate is down (Decisions log, Step 7).
+ */
+uint32_t lg_lower_delay_ms(const lg_vote_cfg_t *cfg, uint8_t level);
 
 /* ---- Clearing --------------------------------------------------------- */
 

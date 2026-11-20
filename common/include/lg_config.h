@@ -16,6 +16,11 @@
 #define LG_RESTART_BUDGET 3
 #define LG_RESTART_WINDOW_MS 10000
 #define LG_GATE_WATCHDOG_MS 100
+#define LG_CTL_IPC_TIMEOUT_MS 5        /* initial: bound for one MsgSend from the controller to the gate */
+#define LG_CTL_CONNECTOR_PERIOD_MS 200 /* initial: how often the connector thread looks for the gate */
+#define LG_CTL_LIGHTS_REFRESH_TICKS 50 /* initial: lights and bell commands are repeated this often */
+#define LG_CTL_GATE_BOOT_GRACE_MS 2000 /* initial: a gate never heard yet is a WARNING this long, then silent */
+#define LG_CTL_BURST_GUARD_MS 5        /* initial: a tick pulse closer than this to the last one is ignored */
 
 /* Gate motor simulation (lg-gate). */
 #define LG_GATE_TRAVEL_MS 4000        /* initial: nominal lowering or raising time */
@@ -43,7 +48,7 @@
 
 /* Activation and clearing. */
 #define LG_EXTRA_MARGIN_MS 5000 /* extra pre-warning in level 2 */
-#define LG_PREWARNING_MS 10000  /* initial: lights/bell on before the gate lowers */
+#define LG_PREWARNING_MS 5000   /* initial: lights/bell on before the gate lowers; prewarning + gate travel must stay below the fastest train time to the island */
 #define LG_T_CLEAR_MS 2000      /* island clear this long before the gate may rise */
 #define LG_MIN_GATE_DOWN_MS 3000 /* initial */
 

@@ -515,10 +515,13 @@ static void test_voting_extra(void) {
     v = lg_vote_direction(&d);
     CHECK(v.detection == LG_DET_NONE && !v.approaching);
 
-    /* Margin: level 2 and above get the extra (a direction that still has sensors in level 3). */
+    /* Lower delay: level 2 and above start lowering sooner (floor 0). */
     for (lvl = 0; lvl <= LG_LEVEL_FAILSAFE; lvl++) {
-        uint32_t want = cfg.prewarning_ms + (lvl >= LG_LEVEL_DEGRADED ? cfg.extra_margin_ms : 0);
-        CHECK(lg_activation_margin_ms(&cfg, lvl) == want);
+        uint32_t want = cfg.prewarning_ms;
+        if (lvl >= LG_LEVEL_DEGRADED) {
+            want = cfg.prewarning_ms > cfg.extra_margin_ms ? cfg.prewarning_ms - cfg.extra_margin_ms : 0;
+        }
+        CHECK(lg_lower_delay_ms(&cfg, lvl) == want);
     }
 }
 
