@@ -1,0 +1,1 @@
+lg-stub 0.0.1-skeleton proto=1 hdr=16 event=96 gate=/dev/lg/gate

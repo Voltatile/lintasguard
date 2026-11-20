@@ -32,6 +32,17 @@ VM IP is assigned by DHCP and changed after the rebuild (192.168.56.101 to 192.1
 
 Not done in Step 2: `clang-format` is not installed on this host, so `make lint` skips the format check and only runs the warnings-as-errors build.
 
+## Step 3: Shared protocol
+
+| Check | Result | Verified where |
+|---|---|---|
+| `common/include/lg_proto.h`, `lg_names.h`, `lg_config.h` compile with `-Wall -Wextra -Werror -std=c11` | yes, via `make test` (gcc 14.2.0) and `make target` (qcc gcc_ntox86_64) | Windows host, SDP 8.0 |
+| `gcc -Wpadded` on `lg_proto.h` | no padding reported | Windows host |
+| `tests/unit/test_proto.c` | `PASS: test_proto` (header position, ids, priority order, timing relations) | Windows host |
+| Stub including the headers runs on target | `lg-stub 0.0.1-skeleton proto=1 hdr=16 event=96 gate=/dev/lg/gate` (`evidence/step3_proto.txt`) | **QNX 8.0 VM** |
+
+Not verified yet: message passing with these structs (first used in Step 5); pulse code range on the target.
+
 ## Known gaps
 
 - `clang-format` missing on the host (format check skipped in `make lint`).
