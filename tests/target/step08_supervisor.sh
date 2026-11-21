@@ -155,10 +155,10 @@ gate_down_lit() { [ "$(gfield state)" = "DOWN" ] && [ "$(gfield lights)" = "1" ]
 no_dead() { ! grep -q 'state=DEAD' /dev/lg/supervisor; }
 # The transitions of the level, in order, of controller pid $1 (for example "4>0 0>2 2>0 ")
 level_trail() {
-    slog2info 2>/dev/null | grep "lg_controller\.$1" | sed -n 's/.*level \([0-9]\) -> \([0-9]\).*/\1>\2/p' | tr '\n' ' '
+    slog2info 2>/dev/null | grep -E "lg_controller\.$1[[:space:]]" | sed -n 's/.*level \([0-9]\) -> \([0-9]\).*/\1>\2/p' | tr '\n' ' '
 }
 started_names() { # names in the order the supervisor $1 started them (first start of each)
-    slog2info 2>/dev/null | grep "lg_supervisor\.$1" | sed -n 's/.* started \([^ ]*\) as pid.*/\1/p'
+    slog2info 2>/dev/null | grep -E "lg_supervisor\.$1[[:space:]]" | sed -n 's/.* started \([^ ]*\) as pid.*/\1/p'
 }
 boot_order_ok() { # the gate first, the controller last, the plant before the controller
     list=$(started_names "$1")
@@ -195,7 +195,7 @@ reack_until_level0() {
 }
 ack_until_level0() { [ "$(exit_code_of $BIN/lgctl guard-ack --id G01)" = "0" ] && reack_until_level0; }
 write_refused() { ! sh -c 'echo x > /dev/lg/supervisor' 2>/dev/null; }
-sup_prio_logged() { slog2info 2>/dev/null | grep "lg_supervisor\.$1" | grep -q 'running SCHED_FIFO priority 55'; }
+sup_prio_logged() { slog2info 2>/dev/null | grep -E "lg_supervisor\.$1[[:space:]]" | grep -q 'running SCHED_FIFO priority 55'; }
 
 # Safety net: a hang must not block the whole run for ever (see step07_controller.sh).
 rm -f /tmp/step08_done /tmp/step08_guard.txt
@@ -461,7 +461,7 @@ echo "--- gate: $(cat /dev/lg/gate)"
 echo "--- supervisor:"
 cat /dev/lg/supervisor
 echo "--- slog2info, supervisor lines of this run:"
-slog2info 2>/dev/null | grep "lg_supervisor\.$(pid_of lg-supervisor)" | tail -n 40
+slog2info 2>/dev/null | grep -E "lg_supervisor\.$(pid_of lg-supervisor)[[:space:]]" | tail -n 40
 
 touch /tmp/step08_done
 cleanup

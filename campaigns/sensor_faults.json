@@ -1,0 +1,92 @@
+{
+  "name": "sensor_faults",
+  "step": "README step 9: one approach sensor fails during traffic (stuck, crash, hang)",
+  "scenario": "sensor_faults.json",
+  "seeds": "sensor noise seeds are the lg-sensor defaults, (dir * 3 + id + 1) * 2654435761, the same in every run",
+  "notes": [
+    "Times are plant times in ms. Trains strike in at 20, 60, 100, 150, 180, 220 s (west, east alternating), reach the island at 36, 78, 113, 166, 196, 234 s and the gate is UP again (2 s T_clear, 4 s travel) at about 47, 91, 123, 179, 207, 245 s.",
+    "end_ms lies after the gate of the last counted train is UP and before the next train strikes in, so the end state is level 0, gate UP, lights off.",
+    "expect_trains: trains that reach the island before end_ms. expect_level: highest level after the boot release.",
+    "clear_ms 0: the fault clears itself (crash and hang: the supervisor restarts the sensor).",
+    "expect_diag: the diagnosis of the URGENT maintenance ticket for the faulty sensor (alternatives separated by |); NONE = no ticket at all. Crash and hang race: the controller may see the sensor silent first or the supervisor RESTARTING status first."
+  ],
+  "cases": [
+    {
+      "name": "baseline",
+      "sensor": "west/a",
+      "fault": "none",
+      "inject_ms": 0,
+      "clear_ms": 0,
+      "end_ms": 270000,
+      "expect_trains": 6,
+      "expect_level": 0,
+      "expect_diag": "NONE"
+    },
+    {
+      "name": "stuck_occupied_west_a",
+      "sensor": "west/a",
+      "fault": "stuck-occupied",
+      "inject_ms": 10000,
+      "clear_ms": 50000,
+      "end_ms": 145000,
+      "expect_trains": 3,
+      "expect_level": 2,
+      "expect_diag": "STUCK_OCCUPIED"
+    },
+    {
+      "name": "stuck_clear_west_a",
+      "sensor": "west/a",
+      "fault": "stuck-clear",
+      "inject_ms": 10000,
+      "clear_ms": 50000,
+      "end_ms": 145000,
+      "expect_trains": 3,
+      "expect_level": 2,
+      "expect_diag": "MISSED_TRAIN"
+    },
+    {
+      "name": "stuck_clear_east_b_during_train",
+      "sensor": "east/b",
+      "fault": "stuck-clear",
+      "inject_ms": 61000,
+      "clear_ms": 165000,
+      "end_ms": 270000,
+      "expect_trains": 6,
+      "expect_level": 2,
+      "expect_diag": "MISSED_TRAIN"
+    },
+    {
+      "name": "stuck_occupied_east_a_during_train",
+      "sensor": "east/a",
+      "fault": "stuck-occupied",
+      "inject_ms": 61000,
+      "clear_ms": 100000,
+      "end_ms": 215000,
+      "expect_trains": 5,
+      "expect_level": 2,
+      "expect_diag": "STUCK_OCCUPIED"
+    },
+    {
+      "name": "crash_west_a_during_train",
+      "sensor": "west/a",
+      "fault": "crash",
+      "inject_ms": 21000,
+      "clear_ms": 0,
+      "end_ms": 135000,
+      "expect_trains": 3,
+      "expect_level": 2,
+      "expect_diag": "SILENT|RESTARTING"
+    },
+    {
+      "name": "hang_east_a_during_train",
+      "sensor": "east/a",
+      "fault": "hang",
+      "inject_ms": 61000,
+      "clear_ms": 0,
+      "end_ms": 135000,
+      "expect_trains": 3,
+      "expect_level": 2,
+      "expect_diag": "SILENT|RESTARTING"
+    }
+  ]
+}

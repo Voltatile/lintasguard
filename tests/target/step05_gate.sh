@@ -81,7 +81,7 @@ held_up_3s() {
     [ "$(field watchdog_trips)" = "0" ] && [ "$(state)" = "UP" ]
 }
 no_repeat_trips() { sleep 2; [ "$(field watchdog_trips)" = "1" ]; }
-log_has_watchdog() { slog2info 2>/dev/null | grep "lg_gate\.$GPID" | grep -qi watchdog; }
+log_has_watchdog() { slog2info 2>/dev/null | grep -E "lg_gate\.$GPID[[:space:]]" | grep -qi watchdog; }
 pidin_sees_gate() { pidin -p lg-gate 2>/dev/null | grep -q lg-gate; }
 gate_gone() { ! pidin -p lg-gate 2>/dev/null | grep -q lg-gate; }
 name_gone() { [ ! -e $NAME ]; }
@@ -143,7 +143,7 @@ check "gate reaches DOWN by itself" wait_state DOWN 80
 echo "--- cat $GATE (after watchdog):"
 cat $GATE
 # The gate measures the silence itself, on its own CLOCK_MONOTONIC, when it trips.
-silence=$(slog2info 2>/dev/null | grep "lg_gate\.$GPID" | grep "no controller command" | head -n 1 |
+silence=$(slog2info 2>/dev/null | grep -E "lg_gate\.$GPID[[:space:]]" | grep "no controller command" | head -n 1 |
     sed -n 's/.*heartbeat for \([0-9]*\) ms.*/\1/p')
 echo "--- silence measured by lg-gate at the trip: $silence ms (limit 100 ms, tick 10 ms)"
 check "watchdog tripped after 101 to 160 ms of silence (measured by the gate)" in_range "$silence" 101 160
@@ -200,9 +200,9 @@ check "rejected counter went up by one (invalid command only)" \
 
 # ---- logging --------------------------------------------------------------------------------
 echo "--- slog2info, watchdog lines of this gate (the buffer set lg-gate is listed as lg_gate.<pid>):"
-slog2info 2>/dev/null | grep "lg_gate\.$GPID" | grep -i watchdog
+slog2info 2>/dev/null | grep -E "lg_gate\.$GPID[[:space:]]" | grep -i watchdog
 echo "--- slog2info, last lines of this gate:"
-slog2info 2>/dev/null | grep "lg_gate\.$GPID" | tail -n 8
+slog2info 2>/dev/null | grep -E "lg_gate\.$GPID[[:space:]]" | tail -n 8
 check "slog2 holds a watchdog entry of this gate process (pid $GPID)" log_has_watchdog
 
 # ---- crash injection and restart --------------------------------------------------------------

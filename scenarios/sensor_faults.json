@@ -1,0 +1,11 @@
+{
+  "name": "sensor_faults",
+  "trains": [
+    { "id": 1, "dir": "west", "t_strike_s": 20, "speed_mps": 25, "length_m": 120, "axles": 8 },
+    { "id": 2, "dir": "east", "t_strike_s": 60, "speed_mps": 22, "length_m": 130, "axles": 8 },
+    { "id": 3, "dir": "west", "t_strike_s": 100, "speed_mps": 30, "length_m": 100, "axles": 8 },
+    { "id": 4, "dir": "east", "t_strike_s": 150, "speed_mps": 25, "length_m": 150, "axles": 10 },
+    { "id": 5, "dir": "west", "t_strike_s": 180, "speed_mps": 25, "length_m": 120, "axles": 8 },
+    { "id": 6, "dir": "east", "t_strike_s": 220, "speed_mps": 28, "length_m": 110, "axles": 8 }
+  ]
+}

@@ -172,7 +172,7 @@ prio_ok() { # the controller read its own scheduling back: SCHED_FIFO (1), prior
     [ "$(cfield sched_policy)" = "1" ] && [ "$(cfield sched_priority)" = "50" ]
 }
 slog_level_lines() { # lines of the level changes of controller pid $1
-    slog2info 2>/dev/null | grep "lg_controller\.$1" | grep -c 'level [0-9] -> [0-9]'
+    slog2info 2>/dev/null | grep -E "lg_controller\.$1[[:space:]]" | grep -c 'level [0-9] -> [0-9]'
 }
 
 # freeze_cycles <pid> <n>: stop and continue the gate n times; the controller must answer its status
@@ -340,7 +340,7 @@ cat $CSV
 echo "--- controller: $(cat /dev/lg/controller)"
 echo "--- gate: $(cat /dev/lg/gate)"
 echo "--- slog2info, controller lines of this run:"
-slog2info 2>/dev/null | grep "lg_controller\.$CPID" | tail -n 30
+slog2info 2>/dev/null | grep -E "lg_controller\.$CPID[[:space:]]" | tail -n 30
 
 touch /tmp/step07_done
 cleanup
