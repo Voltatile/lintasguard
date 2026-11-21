@@ -12,6 +12,9 @@
  *                            only guard ids from the "guards" array of the crossing config, -c; without
  *                            -c nobody may acknowledge; the PIN hash is NOT checked yet, Step 13).
  *  - /dev/lg/controller      read: one line of status text. Writes are refused (EPERM).
+ *  - /dev/lg/events          read: the events still in the ring of the decision logic (level changes,
+ *                            maintenance tickets), one key=value line each, oldest first. Writes are
+ *                            refused (EPERM). Every new event is also written to slog2 (Step 9).
  *  - every LG_TICK_MS: run the decision logic (core/controller_logic.c) and tell the gate what it
  *    should do. LOWER or RAISE is sent on every tick: it is the watchdog keepalive of lg-gate and its
  *    reply carries the gate state. Lights and bell are sent on change and refreshed periodically.
@@ -118,7 +121,12 @@ static struct {
 static iofunc_attr_t g_attr;
 static resmgr_connect_funcs_t g_connect_funcs;
 static resmgr_io_funcs_t g_io_funcs;
-static char g_text[640];
+static char g_text[768]; /* core line (under 512, test_controller_events) + process counters */
+static iofunc_attr_t g_ev_attr;
+static resmgr_io_funcs_t g_ev_io_funcs;
+static char g_ev_text[LG_CTL_EVENT_RING * 160];
+static uint32_t g_ev_logged; /* seq of the newest event written to slog2 */
+static uint32_t g_ev_lost;   /* events that left the ring before they were logged */
 
 static void logf_(uint8_t severity, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
@@ -478,6 +486,32 @@ static int on_guard_ack(message_context_t *ctp, int code, unsigned flags, void *
     return 0;
 }
 
+/* New events of the decision logic go to slog2 (non-blocking). URGENT tickets as errors. */
+static void log_events(void) {
+    lg_ctl_event_t ev[8];
+    uint32_t n;
+    uint32_t k;
+    char line[160];
+
+    if (g_ctl.events == g_ev_logged) {
+        return;
+    }
+    n = lg_ctl_events_since(&g_ctl, g_ev_logged + 1u, ev, 8);
+    for (k = 0; k < n; k++) {
+        uint8_t sev = ev[k].severity == LG_SEV_URGENT    ? SLOG2_ERROR
+                      : ev[k].severity == LG_SEV_WARNING ? SLOG2_WARNING
+                                                         : SLOG2_INFO;
+
+        if (ev[k].seq != g_ev_logged + 1u) {
+            g_ev_lost += ev[k].seq - g_ev_logged - 1u;
+        }
+        (void)lg_ctl_event_text(&ev[k], line, sizeof line);
+        line[strcspn(line, "\n")] = '\0';
+        logf_(sev, "event %s", line);
+        g_ev_logged = ev[k].seq;
+    }
+}
+
 static int on_tick(message_context_t *ctp, int code, unsigned flags, void *handle) {
     uint64_t now_ns = lg_now_ns();
     uint32_t now = now_ms();
@@ -514,6 +548,7 @@ static int on_tick(message_context_t *ctp, int code, unsigned flags, void *handl
     if (out.cleared_mask != 0) {
         logf_(SLOG2_INFO, "cleared mask 0x%x", (unsigned)out.cleared_mask);
     }
+    log_events();
     post_request(&out);
     return 0;
 }
@@ -546,9 +581,10 @@ static size_t status_text(char *buf, size_t len) {
     /* Replace the newline with the process-level counters (still one line). */
     extra = snprintf(buf + n - 1, len - (n - 1),
                      " ignored_ticks=%u gate_connects=%u gate_dropped=%u guards=%u guard_refused=%u "
-                     "sched_policy=%d sched_priority=%d\n",
+                     "events_lost=%u sched_policy=%d sched_priority=%d\n",
                      (unsigned)g_ignored_ticks, (unsigned)gate_connects(), (unsigned)gate_dropped(),
-                     (unsigned)g_guards.count, (unsigned)g_guard_refused, policy, sp.sched_priority);
+                     (unsigned)g_guards.count, (unsigned)g_guard_refused, (unsigned)g_ev_lost, policy,
+                     sp.sched_priority);
     if (extra < 0 || (size_t)extra >= len - (n - 1)) {
         buf[n - 1] = '\n';
         buf[n] = '\0';
@@ -591,8 +627,53 @@ static int io_read(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb) {
 static int io_write(resmgr_context_t *ctp, io_write_t *msg, RESMGR_OCB_T *ocb) {
     (void)msg;
     (void)ocb;
-    logf_(SLOG2_WARNING, "write to %s from pid %d refused", LG_DEV_CONTROLLER, (int)ctp->info.pid);
+    logf_(SLOG2_WARNING, "write to a controller device from pid %d refused", (int)ctp->info.pid);
     return EPERM;
+}
+
+/* /dev/lg/events: every event still in the ring, oldest first. Same thread as the tick: no lock. */
+static size_t events_text(char *buf, size_t len) {
+    lg_ctl_event_t ev[LG_CTL_EVENT_RING];
+    uint32_t n = lg_ctl_events_since(&g_ctl, 0, ev, LG_CTL_EVENT_RING);
+    uint32_t k;
+    size_t used = 0;
+
+    buf[0] = '\0';
+    for (k = 0; k < n && used + 1 < len; k++) {
+        used += lg_ctl_event_text(&ev[k], buf + used, len - used);
+    }
+    return used;
+}
+
+static int io_read_events(resmgr_context_t *ctp, io_read_t *msg, RESMGR_OCB_T *ocb) {
+    size_t len;
+    size_t off;
+    size_t nbytes;
+    int rc = iofunc_read_verify(ctp, msg, ocb, NULL);
+
+    if (rc != EOK) {
+        return rc;
+    }
+    if ((msg->i.xtype & _IO_XTYPE_MASK) != _IO_XTYPE_NONE) {
+        return ENOSYS;
+    }
+    len = events_text(g_ev_text, sizeof g_ev_text); /* regenerated on every read: read it in one go */
+    off = (size_t)ocb->offset;
+    if (off >= len) {
+        nbytes = 0;
+    } else {
+        nbytes = len - off;
+        if (nbytes > msg->i.nbytes) {
+            nbytes = msg->i.nbytes;
+        }
+    }
+    _IO_SET_READ_NBYTES(ctp, (int)nbytes);
+    if (nbytes == 0) {
+        return _RESMGR_NPARTS(0);
+    }
+    SETIOV(ctp->iov, g_ev_text + off, nbytes);
+    ocb->offset += (off_t)nbytes;
+    return _RESMGR_NPARTS(1);
 }
 
 /* ---- setup ---------------------------------------------------------------------------------- */
@@ -725,10 +806,18 @@ int main(int argc, char **argv) {
     g_io_funcs.read = io_read;
     g_io_funcs.write = io_write;
     iofunc_attr_init(&g_attr, S_IFCHR | 0444, NULL, NULL);
+    g_ev_io_funcs = g_io_funcs;
+    g_ev_io_funcs.read = io_read_events;
+    iofunc_attr_init(&g_ev_attr, S_IFCHR | 0444, NULL, NULL);
 
     if (resmgr_attach(dpp, &rattr, LG_DEV_CONTROLLER, _FTYPE_ANY, 0, &g_connect_funcs, &g_io_funcs,
                       &g_attr) == -1) {
         logf_(SLOG2_ERROR, "resmgr_attach(%s) failed: %s", LG_DEV_CONTROLLER, strerror(errno));
+        return 1;
+    }
+    if (resmgr_attach(dpp, &rattr, LG_DEV_EVENTS, _FTYPE_ANY, 0, &g_connect_funcs, &g_ev_io_funcs,
+                      &g_ev_attr) == -1) {
+        logf_(SLOG2_ERROR, "resmgr_attach(%s) failed: %s", LG_DEV_EVENTS, strerror(errno));
         return 1;
     }
     name = name_attach(dpp, LG_NAME_CONTROLLER, 0);

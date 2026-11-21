@@ -17,6 +17,7 @@
 #define LG_DEV_GATE "/dev/lg/gate"
 #define LG_DEV_PLANT "/dev/lg/plant"
 #define LG_DEV_SUPERVISOR "/dev/lg/supervisor"
+#define LG_DEV_EVENTS "/dev/lg/events" /* lg-controller: recent events and maintenance tickets */
 #define LG_DEV_SENSOR_DIR "/dev/lg/sensor"
 #define LG_DEV_SENSOR_FMT "/dev/lg/sensor/%s/%s" /* direction, id */
 
