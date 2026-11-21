@@ -115,6 +115,8 @@ static void test_required_extra(void) {
             if (st == LG_PROC_DEAD &&
                 (p == LG_PROC_CONTROLLER || p == LG_PROC_SUPERVISOR || p == LG_PROC_GATE)) {
                 want = LG_LEVEL_FAILSAFE;
+            } else if (p == LG_PROC_GATE) {
+                want = LG_LEVEL_FAILSAFE; /* Step 8: a gate that is restarting is not under control either */
             } else if (p == LG_PROC_BRIDGE) {
                 want = LG_LEVEL_EARLY_WARNING;
             } else {

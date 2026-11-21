@@ -15,6 +15,8 @@ lg_ctl_cfg_t lg_ctl_cfg_default(void) {
     c.sensor_silence_ms = LG_HEARTBEAT_TIMEOUT_MS;
     c.gate_silence_ms = LG_GATE_WATCHDOG_MS;
     c.gate_boot_grace_ms = LG_CTL_GATE_BOOT_GRACE_MS;
+    c.sup_silence_ms = LG_CTL_SUP_SILENCE_MS;
+    c.restarted = 0;
     return c;
 }
 
@@ -31,7 +33,11 @@ void lg_ctl_init(lg_ctl_t *c, const lg_ctl_cfg_t *cfg, uint32_t now_ms) {
     for (d = 0; d < LG_DIR_COUNT; d++) {
         lg_clear_init(&c->clear[d]);
     }
-    lg_mode_init(&c->mode, now_ms);
+    if (cfg->restarted) {
+        lg_mode_init_restarted(&c->mode, now_ms);
+    } else {
+        lg_mode_init(&c->mode, now_ms);
+    }
 }
 
 int lg_ctl_on_sample(lg_ctl_t *c, uint8_t dir, uint8_t id, uint8_t occupied, uint8_t quality,
@@ -78,6 +84,25 @@ void lg_ctl_note_late(lg_ctl_t *c) {
 
 void lg_ctl_on_guard_ack(lg_ctl_t *c) {
     c->guard_ack_pending = 1;
+    c->guard_acks++;
+}
+
+int lg_ctl_on_proc_status(lg_ctl_t *c, uint8_t proc, uint8_t state, uint8_t restarts, uint32_t now_ms) {
+    if (proc >= LG_PROC_COUNT || proc == LG_PROC_SUPERVISOR || proc == LG_PROC_CONTROLLER) {
+        c->proc_status_rejected++;
+        return -1;
+    }
+    if (state > LG_PROC_DEAD) {
+        state = LG_PROC_DEAD;
+        c->proc_status_unknown++;
+    }
+    c->proc_state[proc] = state;
+    c->proc_restarts[proc] = restarts;
+    c->sup_armed = 1;
+    c->sup_silent = 0;
+    c->sup_rx_ms = now_ms;
+    c->proc_status_rx++;
+    return 0;
 }
 
 /* Sample younger than LG_SAMPLE_MAX_AGE_MS (by the sensor's own header time). */
@@ -194,6 +219,14 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
     } else {
         in.verdict[LG_COMP_GATE] = LG_VERDICT_OK;
     }
+    /* Supervisor reports. The supervisor itself is judged by its silence once it has been heard. */
+    if (c->sup_armed && lg_elapsed_ge(now_ms, c->sup_rx_ms, c->cfg.sup_silence_ms)) {
+        c->sup_silent = 1; /* latched like the sensor silence: the 32-bit clock must not revive it */
+    }
+    for (i = 0; i < LG_PROC_COUNT; i++) {
+        in.proc_state[i] = c->proc_state[i];
+    }
+    in.proc_state[LG_PROC_SUPERVISOR] = c->sup_silent ? (uint8_t)LG_PROC_DEAD : (uint8_t)LG_PROC_RUNNING;
     in.self_check_ok = (uint8_t)!gate_silent;
     in.guard_ack = c->guard_ack_pending;
     c->guard_ack_pending = 0;
@@ -300,21 +333,31 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
 
 size_t lg_ctl_text(const lg_ctl_t *c, char *buf, size_t len) {
     int n;
+    unsigned proc_bad = 0;
+    int i;
 
     if (buf == NULL || len == 0) {
         return 0;
     }
+    for (i = 0; i < LG_PROC_COUNT; i++) {
+        if (c->proc_state[i] != LG_PROC_RUNNING) {
+            proc_bad |= 1u << i;
+        }
+    }
     n = snprintf(buf, len,
                  "level=%u boot_lock=%u gate=%s gate_silent=%u target=%s lights=%u bell=%u active=%u,%u "
                  "activations=%u cycles=%u ticks=%u late_ticks=%u samples=%u rejected=%u "
-                 "gate_replies=%u gate_timeouts=%u\n",
+                 "gate_replies=%u gate_timeouts=%u sup_armed=%u sup_silent=%u proc_status_rx=%u "
+                 "proc_status_rejected=%u proc_bad=0x%x guard_acks=%u\n",
                  (unsigned)c->mode.level, (unsigned)c->mode.boot_lock,
                  lg_gate_state_name(c->gate_state), (unsigned)c->gate_silent,
                  c->last_gate_target == LG_GATE_TARGET_UP ? "UP" : "DOWN", (unsigned)c->last_lights,
                  (unsigned)c->last_bell, (unsigned)c->active[0], (unsigned)c->active[1],
                  (unsigned)c->activations, (unsigned)c->cycles, (unsigned)c->ticks,
                  (unsigned)c->late_ticks, (unsigned)c->samples, (unsigned)c->samples_rejected,
-                 (unsigned)c->gate_replies, (unsigned)c->gate_timeouts);
+                 (unsigned)c->gate_replies, (unsigned)c->gate_timeouts, (unsigned)c->sup_armed,
+                 (unsigned)c->sup_silent, (unsigned)c->proc_status_rx, (unsigned)c->proc_status_rejected,
+                 proc_bad, (unsigned)c->guard_acks);
     if (n < 0) {
         buf[0] = '\0';
         return 0;

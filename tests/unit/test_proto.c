@@ -19,7 +19,14 @@ int main(void) {
     CHECK(offsetof(lg_guard_ack_t, hdr) == 0);
     CHECK(offsetof(lg_ack_t, hdr) == 0);
 
-    CHECK(LG_PROTO_VERSION == 3);
+    CHECK(LG_PROTO_VERSION == 4);
+
+    /* The heartbeat value is the process id: it must fit what a pulse value can hold. */
+    CHECK(LG_PROC_COUNT < 256);
+    CHECK(LG_PULSE_CHILD_EXIT != LG_PULSE_TICK && LG_PULSE_CHILD_EXIT != LG_PULSE_HEARTBEAT &&
+          LG_PULSE_CHILD_EXIT != LG_PULSE_SHUTDOWN && LG_PULSE_CHILD_EXIT != LG_PULSE_HEALTH_RECHECK);
+    CHECK(LG_SUP_START_GRACE_MS > LG_HEARTBEAT_TIMEOUT_MS);
+    CHECK(LG_CTL_SUP_SILENCE_MS >= 3 * LG_SUP_STATUS_REFRESH_MS);
 
     /* Types must stay above the QNX reserved range (_IO_MAX = 0x1FF in sys/iomsg.h). */
     CHECK(LG_MSG_SENSOR_SAMPLE > 0x1FF);

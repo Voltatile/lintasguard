@@ -71,6 +71,13 @@ uint8_t lg_mode_required(const lg_mode_in_t *in, uint8_t *reason);
 /* Starts in level 4 with the boot lock set (gate down). */
 void lg_mode_init(lg_mode_t *m, uint32_t now_ms);
 
+/*
+ * Starts in level 4 WITHOUT the boot lock: for a controller that was restarted by the supervisor.
+ * The previous controller may have died while level 4 was locked, so nothing may release it by itself;
+ * a guard acknowledgement (inputs healthy, stable for T_stable) is needed.
+ */
+void lg_mode_init_restarted(lg_mode_t *m, uint32_t now_ms);
+
 lg_mode_result_t lg_mode_step(lg_mode_t *m, const lg_mode_cfg_t *cfg, const lg_mode_in_t *in,
                               uint32_t now_ms);
 

@@ -51,6 +51,8 @@ typedef struct {
     uint32_t sensor_silence_ms; /* no sample for this long: sensor FAILED */
     uint32_t gate_silence_ms;   /* no gate reply for this long: gate FAILED, self check fails */
     uint32_t gate_boot_grace_ms; /* a gate never heard yet is only a WARNING for this long */
+    uint32_t sup_silence_ms;     /* supervisor heard once, then silent this long: DEAD */
+    uint8_t restarted;           /* started by the supervisor after an earlier controller: no boot release */
 } lg_ctl_cfg_t;
 
 lg_ctl_cfg_t lg_ctl_cfg_default(void);
@@ -84,6 +86,13 @@ typedef struct {
     uint32_t gate_down_since_ms;
     uint32_t first_step_ms; /* the gate grace and silence clocks start here, not at init */
 
+    /* Supervisor reports (Step 8). All RUNNING until the supervisor says otherwise. */
+    uint8_t proc_state[LG_PROC_COUNT]; /* lg_proc_state_t per lg_proc_id_t */
+    uint8_t proc_restarts[LG_PROC_COUNT];
+    uint8_t sup_armed;  /* a PROC_STATUS was received: from now on the supervisor must keep talking */
+    uint8_t sup_silent; /* latched: armed and silent for sup_silence_ms, cleared by a PROC_STATUS */
+    uint32_t sup_rx_ms;
+
     uint8_t active[LG_DIR_COUNT];
     lg_clear_t clear[LG_DIR_COUNT];
     uint32_t last_approach_ms[LG_DIR_COUNT];
@@ -97,6 +106,10 @@ typedef struct {
     uint32_t samples_rejected;
     uint32_t gate_replies;
     uint32_t gate_timeouts;
+    uint32_t proc_status_rx;
+    uint32_t proc_status_rejected;
+    uint32_t proc_status_unknown; /* a state outside lg_proc_state_t, stored as DEAD */
+    uint32_t guard_acks;
     uint32_t activations;
     uint32_t cycles; /* all directions idle again after an activation */
     uint32_t last_unmet[LG_DIR_COUNT];
@@ -132,6 +145,15 @@ int lg_ctl_on_sample(lg_ctl_t *c, uint8_t dir, uint8_t id, uint8_t occupied, uin
 int lg_ctl_on_gate_reply(lg_ctl_t *c, uint8_t gate_state, uint32_t now_ms);
 void lg_ctl_note_gate_timeout(lg_ctl_t *c);
 void lg_ctl_note_late(lg_ctl_t *c);
+
+/*
+ * A PROC_STATUS from the supervisor. Returns 0 when stored and -1 when refused (a process id outside
+ * the table, or the id of the supervisor or the controller itself: those are derived here, nobody
+ * may report them). A state outside lg_proc_state_t is stored as DEAD (fails closed). Any accepted
+ * status also counts as a sign of life of the supervisor and arms its silence check: a setup without
+ * supervisor (hand-started processes) is never treated as having a dead one.
+ */
+int lg_ctl_on_proc_status(lg_ctl_t *c, uint8_t proc, uint8_t state, uint8_t restarts, uint32_t now_ms);
 
 /* Authorised guard acknowledgement, consumed by the next step (authentication is Step 13). */
 void lg_ctl_on_guard_ack(lg_ctl_t *c);

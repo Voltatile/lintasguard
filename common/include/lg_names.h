@@ -16,6 +16,7 @@
 /* Resource manager paths. */
 #define LG_DEV_GATE "/dev/lg/gate"
 #define LG_DEV_PLANT "/dev/lg/plant"
+#define LG_DEV_SUPERVISOR "/dev/lg/supervisor"
 #define LG_DEV_SENSOR_DIR "/dev/lg/sensor"
 #define LG_DEV_SENSOR_FMT "/dev/lg/sensor/%s/%s" /* direction, id */
 
@@ -36,6 +37,7 @@
 #define LG_PRIO_SCHEDULE 15
 #define LG_PRIO_BRIDGE 10
 #define LG_PRIO_CONNECTOR 10 /* helper threads that may block while (re)connecting */
+#define LG_PRIO_SUP_SENDER 30 /* lg-supervisor: the thread that sends PROC_STATUS (may block on a stuck controller) */
 #define LG_PRIO_METER 42     /* lg-meter: evaluation only, samples the gate and the plant truth */
 
 /* Installed locations on the target. */

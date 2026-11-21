@@ -11,7 +11,7 @@
 
 #include <stdint.h>
 
-#define LG_PROTO_VERSION 3
+#define LG_PROTO_VERSION 4
 
 /*
  * Message types start above 0x1FF: QNX reserves 0x000 to 0x1FF for kernel and I/O messages
@@ -44,8 +44,18 @@ typedef enum {
     LG_PULSE_TICK = 1,
     LG_PULSE_HEARTBEAT = 2,
     LG_PULSE_HEALTH_RECHECK = 3,
-    LG_PULSE_SHUTDOWN = 4
+    LG_PULSE_SHUTDOWN = 4,
+    LG_PULSE_CHILD_EXIT = 5 /* supervisor internal: a child was reaped, value = its pid */
 } lg_pulse_code_t;
+
+/*
+ * A LG_PULSE_HEARTBEAT sent to lg/supervisor has the sender's lg_proc_id_t as its value. The pid is
+ * NOT in the value: QNX pids need up to 31 bits (seen on the VM: 355848218), which do not fit next
+ * to the process id. The supervisor takes the real pid of the sender from the connection the pulse
+ * arrived on (ConnectClientInfo of the pulse's scoid) and accepts the beat only when that pid is the
+ * current incarnation of the named process: a dying old process, a stale pulse, or another process
+ * that names someone else's id cannot keep a process alive.
+ */
 
 typedef enum { LG_DIR_WEST = 0, LG_DIR_EAST = 1, LG_DIR_COUNT = 2 } lg_dir_t;
 

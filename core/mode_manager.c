@@ -73,6 +73,10 @@ uint8_t lg_mode_required(const lg_mode_in_t *in, uint8_t *reason_out) {
     if (verdict_of(in, LG_COMP_GATE) == LG_VERDICT_FAILED) {
         raise_level(&level, &reason, LG_LEVEL_FAILSAFE, LG_REASON_GATE_FAILED);
     }
+    /* A gate that is being restarted is not under control: level 4 by rule, whatever the verdict says yet. */
+    if (proc_of(in, LG_PROC_GATE) == LG_PROC_RESTARTING) {
+        raise_level(&level, &reason, LG_LEVEL_FAILSAFE, LG_REASON_GATE_FAILED);
+    }
 
     /* Non-sensor processes (sensor processes are handled with their sensors below). */
     for (i = 0; i < LG_PROC_COUNT; i++) {
@@ -140,6 +144,11 @@ void lg_mode_init(lg_mode_t *m, uint32_t now_ms) {
     m->prev_required = LG_LEVEL_FAILSAFE;
     m->timing = 0;
     m->since_ms = now_ms;
+}
+
+void lg_mode_init_restarted(lg_mode_t *m, uint32_t now_ms) {
+    lg_mode_init(m, now_ms);
+    m->boot_lock = 0; /* level 4 is then left only through a guard acknowledgement */
 }
 
 static lg_mode_result_t result(const lg_mode_t *m, uint8_t from, uint8_t reason) {
