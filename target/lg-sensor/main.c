@@ -54,6 +54,7 @@
 
 #include "lg_config.h"
 #include "lg_devctl.h"
+#include "lg_heartbeat.h"
 #include "lg_metrics.h"
 #include "lg_names.h"
 #include "lg_proto.h"
@@ -327,6 +328,7 @@ static void tick(uint64_t *prev_tick_ns) {
     uint32_t seq;
     int have_truth;
     int have;
+    int hung;
 
     uint64_t period_ns = (uint64_t)LG_SENSOR_PERIOD_MS * 1000000ull;
     uint32_t missed = 0;
@@ -372,10 +374,19 @@ static void tick(uint64_t *prev_tick_ns) {
     } else {
         g_stats.no_sample++;
     }
+    hung = g_model.fault == LG_SFAULT_HANG;
     (void)pthread_mutex_unlock(&g_lock);
 
     if (have) {
         send_sample(seq, &out); /* may wait: the lock is not held */
+    }
+    /*
+     * The heartbeat proves that the worker got through a whole tick (a worker stuck in a send
+     * stops beating). The injected HANG fault stops it on purpose (README 7.4): the supervisor
+     * then restarts the process, which also clears the fault.
+     */
+    if (!hung) {
+        lg_hb_beat();
     }
 }
 
@@ -740,6 +751,9 @@ int main(int argc, char **argv) {
     }
     logf_(SLOG2_INFO, "up: %s and name %s attached, seed %u, period %d ms", dev_path, name_path,
           (unsigned)seed, LG_SENSOR_PERIOD_MS);
+    if (lg_hb_start((uint8_t)(LG_PROC_SENSOR_BASE + g_dir * LG_SENSOR_ID_COUNT + g_id)) != 0) {
+        logf_(SLOG2_WARNING, "heartbeat thread not started: no supervision");
+    }
     g_loop_started = 1;
 
     for (;;) {

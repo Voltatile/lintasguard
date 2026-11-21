@@ -2,7 +2,7 @@
  * lg-plant: the simulated world (README 4.2). It moves trains along a scenario and answers the
  * sensors' questions "what do I see now" with ground truth. The controller never talks to it.
  *
- *   lg-plant --crossing <crossing.json> --scenario <scenario.json> [-v]
+ *   lg-plant --crossing <crossing.json> --scenario <scenario.json> [--epoch-ms <ms>] [-v]
  *
  *  - name "lg/plant"      message passing: LG_MSG_TRUTH_QUERY in, LG_MSG_TRUTH_REPLY out.
  *  - /dev/lg/plant        read: one line of text (scenario time, trains waiting/active/finished).
@@ -10,8 +10,10 @@
  *  - slog2                train events (strike-in, island entry, island exit, island cleared).
  *
  * The truth is a pure function of the scenario and the clock (core/plant_model.c), so the plant
- * keeps no per-tick state. Scenario time 0 is the moment this process starts: a restart of the
- * plant restarts the scenario. One thread, one dispatch loop, default channel: the plant takes
+ * keeps no per-tick state. Scenario time 0 is the moment this process starts, or the absolute
+ * CLOCK_MONOTONIC time (32-bit ms) given with --epoch-ms: lg-supervisor passes the same epoch on
+ * every (re)start, so a restarted plant continues the scenario instead of replaying it.
+ * One thread, one dispatch loop, default channel: the plant takes
  * the priority of the sensor that asks (priority inheritance is wanted here, the callers are the
  * higher-priority sensors).
  */
@@ -35,6 +37,7 @@
 #include <time.h>
 
 #include "lg_config.h"
+#include "lg_heartbeat.h"
 #include "lg_names.h"
 #include "lg_plant_model.h"
 #include "lg_proto.h"
@@ -47,6 +50,7 @@ static lg_plant_t g_plant;
 static lg_json_doc_t g_doc;
 static char g_file[FILE_MAX];
 static uint32_t g_t0_ms;
+static int g_epoch_given;
 static int64_t g_prev_ms = -1; /* -1: the first window starts before t = 0 */
 static uint32_t g_seq;
 static slog2_buffer_t g_log;
@@ -197,6 +201,7 @@ static int on_tick(message_context_t *ctp, int code, unsigned flags, void *handl
               event_name(ev[i].kind));
     }
     g_prev_ms = now;
+    lg_hb_beat();
     return 0;
 }
 
@@ -313,6 +318,16 @@ int main(int argc, char **argv) {
             crossing = argv[++i];
         } else if (strcmp(argv[i], "--scenario") == 0 && i + 1 < argc) {
             scenario = argv[++i];
+        } else if (strcmp(argv[i], "--epoch-ms") == 0 && i + 1 < argc) {
+            char *end = NULL;
+            unsigned long v = strtoul(argv[++i], &end, 10);
+
+            if (end == NULL || *end != '\0' || argv[i][0] == '\0' || v > 0xFFFFFFFFul) {
+                crossing = NULL;
+                break;
+            }
+            g_t0_ms = (uint32_t)v;
+            g_epoch_given = 1;
         } else if (strcmp(argv[i], "-v") == 0) {
             g_verbose = 1;
         } else {
@@ -321,7 +336,7 @@ int main(int argc, char **argv) {
         }
     }
     if (crossing == NULL || scenario == NULL) {
-        (void)fprintf(stderr, "usage: lg-plant --crossing <crossing.json> --scenario <scenario.json> [-v]\n");
+        (void)fprintf(stderr, "usage: lg-plant --crossing <crossing.json> --scenario <scenario.json> [--epoch-ms <ms>] [-v]\n");
         return 2;
     }
 
@@ -362,7 +377,16 @@ int main(int argc, char **argv) {
         logf_(SLOG2_ERROR, "pulse_attach failed: %s", strerror(errno));
         return 1;
     }
-    g_t0_ms = now_ms(); /* scenario time 0 */
+    if (!g_epoch_given) {
+        g_t0_ms = now_ms(); /* scenario time 0 */
+    } else {
+        /* An epoch in the future would make the scenario time wrap to a huge number: refuse it. */
+        if ((int32_t)(now_ms() - g_t0_ms) < 0) {
+            logf_(SLOG2_ERROR, "--epoch-ms lies in the future, refusing to start");
+            return 2;
+        }
+        g_prev_ms = (int64_t)plant_ms(); /* the events up to now were logged by the earlier run */
+    }
     if (start_event_timer(dpp) != 0) {
         return 1;
     }
@@ -371,7 +395,11 @@ int main(int argc, char **argv) {
         logf_(SLOG2_ERROR, "dispatch_context_alloc failed: %s", strerror(errno));
         return 1;
     }
-    logf_(SLOG2_INFO, "up: %s and name %s attached, scenario time starts now", LG_DEV_PLANT, LG_NAME_PLANT);
+    logf_(SLOG2_INFO, "up: %s and name %s attached, scenario time %s (now %u ms)", LG_DEV_PLANT,
+          LG_NAME_PLANT, g_epoch_given ? "continues from the epoch" : "starts now", (unsigned)plant_ms());
+    if (lg_hb_start(LG_PROC_PLANT) != 0) {
+        logf_(SLOG2_WARNING, "heartbeat thread not started: no supervision");
+    }
     g_loop_started = 1;
 
     for (;;) {

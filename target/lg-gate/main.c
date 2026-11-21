@@ -32,6 +32,7 @@
 #include "lg_config.h"
 #include "lg_devctl.h"
 #include "lg_gate_model.h"
+#include "lg_heartbeat.h"
 #include "lg_names.h"
 #include "lg_proto.h"
 #include "lg_target_util.h"
@@ -281,6 +282,7 @@ static int on_tick(message_context_t *ctp, int code, unsigned flags, void *handl
 
     g_ticks++;
     lg_gate_model_step(&g_model, now);
+    lg_hb_beat(); /* the 10 ms tick that also runs the watchdog is the proof of life */
     if (g_model.watchdog_trips != prev_trips) {
         logf_(SLOG2_ERROR, "watchdog: no controller command or heartbeat for %u ms (limit %u ms), "
                            "lowering the gate (trip %u)",
@@ -432,6 +434,9 @@ int main(int argc, char **argv) {
     }
     logf_(SLOG2_INFO, "up: %s and name %s attached, gate DOWN, watchdog %u ms, tick %d ms",
           LG_DEV_GATE, LG_NAME_GATE, (unsigned)cfg.watchdog_ms, LG_TICK_MS);
+    if (lg_hb_start(LG_PROC_GATE) != 0) {
+        logf_(SLOG2_WARNING, "heartbeat thread not started: no supervision");
+    }
     g_loop_started = 1;
 
     for (;;) {

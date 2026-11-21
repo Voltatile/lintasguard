@@ -1,10 +1,16 @@
 /*
  * lg-controller (README 4.2, 4.3, 8.1, 8.2): the only process that commands the gate.
  *
- *   lg-controller [-v]
+ *   lg-controller [-c <crossing.json>] [-r] [-v]
+ *
+ *   -r  restarted by the supervisor: boots in level 4 without the boot release, a guard acknowledgement
+ *       is needed (the earlier controller may have died while level 4 was locked)
  *
  *  - name lg/controller      message passing: LG_MSG_SENSOR_SAMPLE in (reply: lg_ack_t, a refusal is
  *                            lg_ack_t.status, never MsgError, so a sensor does not reconnect).
+ *                            LG_MSG_PROC_STATUS in (from lg-supervisor), LG_MSG_GUARD_ACK in (from lgctl;
+ *                            only guard ids from the "guards" array of the crossing config, -c; without
+ *                            -c nobody may acknowledge; the PIN hash is NOT checked yet, Step 13).
  *  - /dev/lg/controller      read: one line of status text. Writes are refused (EPERM).
  *  - every LG_TICK_MS: run the decision logic (core/controller_logic.c) and tell the gate what it
  *    should do. LOWER or RAISE is sent on every tick: it is the watchdog keepalive of lg-gate and its
@@ -51,12 +57,17 @@
 #include <sys/siginfo.h>
 #include <sys/slog2.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "lg_config.h"
 #include "lg_controller_logic.h"
+#include "lg_guards.h"
+#include "lg_heartbeat.h"
+#include "lg_json_mini.h"
 #include "lg_metrics.h"
 #include "lg_names.h"
 #include "lg_proto.h"
+#include "lg_scenario.h"
 #include "lg_target_util.h"
 
 #define LG_DEV_CONTROLLER "/dev/lg/controller"
@@ -70,6 +81,10 @@ static uint64_t g_prev_tick_ns;
 static uint32_t g_ack_seq;
 static uint32_t g_refresh_ticks;
 static uint32_t g_ignored_ticks;
+static lg_guards_t g_guards; /* read once at startup, then only read */
+static uint32_t g_guard_refused;
+static lg_json_doc_t g_doc;
+static char g_file[4096];
 
 /* The gate connection, shared between the main thread (uses it) and the connector (makes it). */
 static pthread_mutex_t g_slot_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -103,7 +118,7 @@ static struct {
 static iofunc_attr_t g_attr;
 static resmgr_connect_funcs_t g_connect_funcs;
 static resmgr_io_funcs_t g_io_funcs;
-static char g_text[400];
+static char g_text[640];
 
 static void logf_(uint8_t severity, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
@@ -404,6 +419,65 @@ static int on_sample(message_context_t *ctp, int code, unsigned flags, void *han
     return 0;
 }
 
+/* The supervisor reports the state of a process. A refusal is an ack status, never MsgError. */
+static int on_proc_status(message_context_t *ctp, int code, unsigned flags, void *handle) {
+    const lg_proc_status_t *s = (const lg_proc_status_t *)ctp->msg;
+
+    (void)flags;
+    (void)handle;
+
+    if ((size_t)ctp->info.msglen < sizeof *s || s->hdr.type != (uint16_t)code ||
+        s->hdr.version != LG_PROTO_VERSION) {
+        g_ctl.proc_status_rejected++;
+        reply_ack(ctp, EINVAL);
+        return 0;
+    }
+    /*
+     * Only the supervisor reports process states, and the supervisor is the parent of this process.
+     * When it dies the parent changes, so nobody can keep a dead supervisor looking alive with forged
+     * statuses. (A controller started by hand has no supervisor: it gets no statuses and never arms.)
+     */
+    if (ctp->info.pid != getppid()) {
+        g_ctl.proc_status_rejected++;
+        reply_ack(ctp, EPERM);
+        return 0;
+    }
+    reply_ack(ctp, lg_ctl_on_proc_status(&g_ctl, s->proc_id, s->state, s->restarts_in_window, now_ms()) == 0
+                       ? 0
+                       : EINVAL);
+    return 0;
+}
+
+/*
+ * A guard acknowledges level 4. Only ids from the config count and only the plain acknowledgement;
+ * whether level 4 is really left is decided by the mode manager (healthy inputs, stable). The PIN
+ * hash is not checked: any local process can send this message (Step 13).
+ */
+static int on_guard_ack(message_context_t *ctp, int code, unsigned flags, void *handle) {
+    const lg_guard_ack_t *m = (const lg_guard_ack_t *)ctp->msg;
+
+    (void)flags;
+    (void)handle;
+
+    if ((size_t)ctp->info.msglen < sizeof *m || m->hdr.type != (uint16_t)code ||
+        m->hdr.version != LG_PROTO_VERSION || m->action != LG_GUARD_ACTION_ACK ||
+        memchr(m->guard_id, '\0', sizeof m->guard_id) == NULL) {
+        reply_ack(ctp, EINVAL);
+        return 0;
+    }
+    if (!lg_guards_allowed(&g_guards, m->guard_id, sizeof m->guard_id)) {
+        g_guard_refused++;
+        logf_(SLOG2_WARNING, "guard ack from pid %d refused: guard id not in the list", (int)ctp->info.pid);
+        reply_ack(ctp, EPERM);
+        return 0;
+    }
+    lg_ctl_on_guard_ack(&g_ctl);
+    logf_(SLOG2_WARNING, "guard ack accepted for guard %s (pid %d), level %u", m->guard_id, (int)ctp->info.pid,
+          (unsigned)g_ctl.mode.level);
+    reply_ack(ctp, 0);
+    return 0;
+}
+
 static int on_tick(message_context_t *ctp, int code, unsigned flags, void *handle) {
     uint64_t now_ns = lg_now_ns();
     uint32_t now = now_ms();
@@ -427,6 +501,7 @@ static int on_tick(message_context_t *ctp, int code, unsigned flags, void *handl
 
     collect_gate_reply();
     out = lg_ctl_step(&g_ctl, now);
+    lg_hb_beat(); /* a tick that ran the decision logic is the proof of life */
     if (out.level_changed) {
         logf_(out.level >= LG_LEVEL_UNCERTAIN ? SLOG2_ERROR : SLOG2_WARNING,
               "level %u -> %u (reason %u)", (unsigned)out.level_from, (unsigned)out.level,
@@ -470,10 +545,10 @@ static size_t status_text(char *buf, size_t len) {
     }
     /* Replace the newline with the process-level counters (still one line). */
     extra = snprintf(buf + n - 1, len - (n - 1),
-                     " ignored_ticks=%u gate_connects=%u gate_dropped=%u sched_policy=%d "
-                     "sched_priority=%d\n",
+                     " ignored_ticks=%u gate_connects=%u gate_dropped=%u guards=%u guard_refused=%u "
+                     "sched_policy=%d sched_priority=%d\n",
                      (unsigned)g_ignored_ticks, (unsigned)gate_connects(), (unsigned)gate_dropped(),
-                     policy, sp.sched_priority);
+                     (unsigned)g_guards.count, (unsigned)g_guard_refused, policy, sp.sched_priority);
     if (extra < 0 || (size_t)extra >= len - (n - 1)) {
         buf[n - 1] = '\n';
         buf[n] = '\0';
@@ -552,6 +627,29 @@ static void setup_priority(void) {
     }
 }
 
+/* The guard allowlist from the crossing config. A file that is unreadable or wrong stops the start. */
+static int load_guards(const char *path) {
+    char err[LG_ERR_LEN];
+    size_t len = 0;
+    int rc;
+
+    if (lg_read_file(path, g_file, sizeof g_file, &len) != 0) {
+        logf_(SLOG2_ERROR, "cannot read %s", path);
+        return -1;
+    }
+    rc = lg_json_parse(&g_doc, g_file, len);
+    if (rc != LG_JSON_OK) {
+        logf_(SLOG2_ERROR, "%s: %s", path, lg_json_error_name(rc));
+        return -1;
+    }
+    if (lg_guards_from_json(&g_doc, &g_guards, err, sizeof err) != 0) {
+        logf_(SLOG2_ERROR, "%s: %s", path, err);
+        return -1;
+    }
+    logf_(SLOG2_INFO, "%u guard id(s) may acknowledge level 4 (no PIN check yet)", (unsigned)g_guards.count);
+    return 0;
+}
+
 static int start_tick_timer(dispatch_t *dpp) {
     struct sigevent ev;
     struct itimerspec its;
@@ -584,20 +682,28 @@ int main(int argc, char **argv) {
     dispatch_context_t *ctp;
     resmgr_attr_t rattr;
     name_attach_t *name;
+    const char *crossing = NULL;
     int chid;
     int i;
 
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-v") == 0) {
             g_verbose = 1;
+        } else if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) {
+            crossing = argv[++i];
+        } else if (strcmp(argv[i], "-r") == 0) {
+            cfg.restarted = 1;
         } else {
-            (void)fprintf(stderr, "usage: lg-controller [-v]\n");
+            (void)fprintf(stderr, "usage: lg-controller [-c <crossing.json>] [-r] [-v]\n");
             return 2;
         }
     }
 
     setup_logging();
     setup_priority();
+    if (crossing != NULL && load_guards(crossing) != 0) {
+        return 1; /* a config that cannot be read or is wrong is refused, not guessed */
+    }
 
     /* Starts in level 4 with the boot lock: gate target DOWN, lights and bell on. */
     lg_ctl_init(&g_ctl, &cfg, now_ms());
@@ -634,6 +740,11 @@ int main(int argc, char **argv) {
         logf_(SLOG2_ERROR, "message_attach failed: %s", strerror(errno));
         return 1;
     }
+    if (message_attach(dpp, NULL, LG_MSG_PROC_STATUS, LG_MSG_PROC_STATUS, on_proc_status, NULL) == -1 ||
+        message_attach(dpp, NULL, LG_MSG_GUARD_ACK, LG_MSG_GUARD_ACK, on_guard_ack, NULL) == -1) {
+        logf_(SLOG2_ERROR, "message_attach failed: %s", strerror(errno));
+        return 1;
+    }
     if (pulse_attach(dpp, 0, LG_PULSE_TICK, on_tick, NULL) == -1) {
         logf_(SLOG2_ERROR, "pulse_attach failed: %s", strerror(errno));
         return 1;
@@ -648,8 +759,11 @@ int main(int argc, char **argv) {
         logf_(SLOG2_ERROR, "dispatch_context_alloc failed: %s", strerror(errno));
         return 1;
     }
-    logf_(SLOG2_INFO, "up: %s and name %s attached, level 4 (boot), tick %d ms", LG_DEV_CONTROLLER,
-          LG_NAME_CONTROLLER, LG_TICK_MS);
+    logf_(SLOG2_INFO, "up: %s and name %s attached, level 4 (%s), tick %d ms", LG_DEV_CONTROLLER,
+          LG_NAME_CONTROLLER, cfg.restarted ? "restarted, guard needed" : "boot", LG_TICK_MS);
+    if (lg_hb_start(LG_PROC_CONTROLLER) != 0) {
+        logf_(SLOG2_WARNING, "heartbeat thread not started: no supervision");
+    }
     g_loop_started = 1;
 
     for (;;) {

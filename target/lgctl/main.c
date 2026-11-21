@@ -1,6 +1,13 @@
 /*
- * lgctl: command line control of LintasGuard (README 4.2, 10.2). Step 6 has the sensor commands
- * only; the other subcommands (kill, guard-ack, status) arrive with their steps.
+ * lgctl: command line control of LintasGuard (README 4.2, 10.2).
+ *
+ *   lgctl kill sensor <dir>/<id> | gate | controller | plant
+ *                                      SIGKILL the process the supervisor started (pid from
+ *                                      /dev/lg/supervisor): what a crash looks like to the system
+ *   lgctl guard-ack --id <guard>       acknowledge level 4 (message to lg/controller). The guard id
+ *                                      must be in the "guards" list of the crossing config; the PIN
+ *                                      is NOT checked yet (Step 13)
+ *   lgctl status                       print /dev/lg/controller and /dev/lg/supervisor
  *
  *   lgctl sensor <dir>/<id> [fault] <mode> [param]    inject a fault through devctl
  *   lgctl sensor <dir>/<id> stats                     print the counters of the sensor
@@ -14,20 +21,25 @@
  * Examples: lgctl sensor west/a noise 50      lgctl sensor west/a fault drift 2
  *
  * Exit codes: 0 ok, 1 failure, 2 usage, 3 rejected as invalid (EINVAL), 4 refused (EPERM).
- * Fault injection needs the device opened for writing: access control proper is Step 13.
+ * Fault injection and kill need root: access control proper is Step 13.
  */
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/dispatch.h>
+#include <sys/neutrino.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "lg_devctl.h"
 #include "lg_names.h"
 #include "lg_proto.h"
 #include "lg_sensor_model.h"
+#include "lg_target_util.h"
 
 static const char *const dir_names[LG_DIR_COUNT] = {LG_DIR_NAME_WEST, LG_DIR_NAME_EAST};
 static const char *const id_names[LG_SENSOR_ID_COUNT] = {LG_SENSOR_NAME_A, LG_SENSOR_NAME_B,
@@ -37,6 +49,9 @@ static int usage(void) {
     (void)fprintf(stderr,
                   "usage: lgctl sensor <dir>/<id> [fault] <mode> [param]\n"
                   "       lgctl sensor <dir>/<id> stats\n"
+                  "       lgctl kill sensor <dir>/<id> | gate | controller | plant\n"
+                  "       lgctl guard-ack --id <guard>\n"
+                  "       lgctl status\n"
                   "  dir west|east, id a|b|island\n"
                   "  mode none noise dropout stuck-occupied stuck-clear delay drift hang crash\n");
     return 2;
@@ -139,6 +154,173 @@ static int do_stats(const char *path) {
     return 0;
 }
 
+/* ---- kill, guard-ack, status ---------------------------------------------------------------- */
+
+/* Reads a text device into buf (NUL terminated). Returns the length, -1 on failure. */
+static int read_text(const char *path, char *buf, size_t cap) {
+    int fd = open(path, O_RDONLY);
+    size_t used = 0;
+
+    if (fd == -1) {
+        (void)fprintf(stderr, "open(%s) failed: %s\n", path, strerror(errno));
+        return -1;
+    }
+    for (;;) {
+        ssize_t n = read(fd, buf + used, cap - 1 - used);
+
+        if (n < 0) {
+            (void)fprintf(stderr, "read(%s) failed: %s\n", path, strerror(errno));
+            (void)close(fd);
+            return -1;
+        }
+        used += (size_t)n;
+        if (n == 0 || used >= cap - 1) {
+            break;
+        }
+    }
+    (void)close(fd);
+    buf[used] = '\0';
+    return (int)used;
+}
+
+/* The pid of the process called `name` in the supervisor text, 0 when it has none, -1 when unknown. */
+static long pid_in_table(const char *text, const char *name) {
+    char key[64];
+    const char *line = text;
+
+    (void)snprintf(key, sizeof key, "proc=%s ", name);
+    while (*line != '\0') {
+        const char *eol = strchr(line, '\n');
+        const char *p;
+
+        if (strncmp(line, key, strlen(key)) == 0) {
+            p = strstr(line, " pid=");
+            if (p == NULL || (eol != NULL && p > eol)) {
+                return -1;
+            }
+            return strtol(p + 5, NULL, 10);
+        }
+        if (eol == NULL) {
+            break;
+        }
+        line = eol + 1;
+    }
+    return -1;
+}
+
+static int cmd_kill(int argc, char **argv) {
+    char name[48];
+    char text[4096];
+    long pid;
+
+    if (argc == 4 && strcmp(argv[2], "sensor") == 0) {
+        char path[64];
+
+        if (sensor_path(argv[3], path, sizeof path) != 0) {
+            (void)fprintf(stderr, "lgctl: unknown sensor '%s'\n", argv[3]);
+            return usage();
+        }
+        (void)snprintf(name, sizeof name, "sensor/%s", argv[3]);
+    } else if (argc == 3 && (strcmp(argv[2], "gate") == 0 || strcmp(argv[2], "controller") == 0 ||
+                             strcmp(argv[2], "plant") == 0)) {
+        (void)snprintf(name, sizeof name, "%s", argv[2]);
+    } else {
+        return usage();
+    }
+    if (read_text(LG_DEV_SUPERVISOR, text, sizeof text) < 0) {
+        (void)fprintf(stderr, "lgctl: no supervisor running? (%s)\n", LG_DEV_SUPERVISOR);
+        return 1;
+    }
+    pid = pid_in_table(text, name);
+    if (pid < 0) {
+        (void)fprintf(stderr, "lgctl: '%s' is not in the supervisor table\n", name);
+        return 1;
+    }
+    if (pid <= 1) {
+        (void)fprintf(stderr, "lgctl: '%s' has no running process (pid %ld)\n", name, pid);
+        return 1; /* never kill(0, ...) or kill(1, ...): that is not a process of ours */
+    }
+    if (kill((pid_t)pid, SIGKILL) == -1) {
+        (void)fprintf(stderr, "kill(%ld) failed: %s\n", pid, strerror(errno));
+        return errno == EPERM ? 4 : 1;
+    }
+    printf("killed %s pid %ld (SIGKILL)\n", name, pid);
+    return 0;
+}
+
+static int cmd_guard_ack(int argc, char **argv) {
+    lg_guard_ack_t msg;
+    lg_ack_t ack;
+    uint64_t timeout_ns = 2000000000ull;
+    int coid;
+    long rc;
+
+    if (argc != 4 || strcmp(argv[2], "--id") != 0) {
+        return usage();
+    }
+    if (strlen(argv[3]) < 1 || strlen(argv[3]) >= LG_GUARD_ID_LEN) {
+        (void)fprintf(stderr, "lgctl: the guard id has 1 to %d characters\n", LG_GUARD_ID_LEN - 1);
+        return 3;
+    }
+    memset(&msg, 0, sizeof msg);
+    msg.hdr.type = LG_MSG_GUARD_ACK;
+    msg.hdr.version = LG_PROTO_VERSION;
+    msg.hdr.seq = 1;
+    msg.hdr.t_ns = lg_now_ns();
+    (void)strcpy(msg.guard_id, argv[3]);
+    msg.action = LG_GUARD_ACTION_ACK; /* the PIN hash stays zero: not checked yet (Step 13) */
+    coid = name_open(LG_NAME_CONTROLLER, 0);
+    if (coid == -1) {
+        (void)fprintf(stderr, "name_open(%s) failed: %s\n", LG_NAME_CONTROLLER, strerror(errno));
+        return 1;
+    }
+    memset(&ack, 0, sizeof ack);
+    (void)TimerTimeout(CLOCK_MONOTONIC, _NTO_TIMEOUT_SEND | _NTO_TIMEOUT_REPLY, NULL, &timeout_ns, NULL);
+    rc = MsgSend(coid, &msg, sizeof msg, &ack, sizeof ack);
+    if (rc == -1) {
+        (void)fprintf(stderr, "MsgSend failed: %s\n", strerror(errno));
+        (void)name_close(coid);
+        return 1;
+    }
+    (void)name_close(coid);
+    if (ack.hdr.type != LG_MSG_ACK || ack.hdr.version != LG_PROTO_VERSION) {
+        (void)fprintf(stderr, "lgctl: the controller did not answer with an ack\n");
+        return 1;
+    }
+    if (ack.status == EPERM) {
+        (void)fprintf(stderr, "guard ack for '%s' refused: not in the guard list\n", argv[3]);
+        return 4;
+    }
+    if (ack.status != 0) {
+        (void)fprintf(stderr, "guard ack rejected: %s\n", strerror(ack.status));
+        return ack.status == EINVAL ? 3 : 1;
+    }
+    printf("guard ack for '%s' sent (level 4 is left only if all inputs are healthy and stable)\n", argv[3]);
+    return 0;
+}
+
+static int cmd_status(int argc) {
+    char text[4096];
+    int bad = 0;
+
+    if (argc != 2) {
+        return usage();
+    }
+    printf("== controller (/dev/lg/controller)\n");
+    if (read_text("/dev/lg/controller", text, sizeof text) < 0) {
+        bad = 1;
+    } else {
+        fputs(text, stdout);
+    }
+    printf("== supervisor (%s)\n", LG_DEV_SUPERVISOR);
+    if (read_text(LG_DEV_SUPERVISOR, text, sizeof text) < 0) {
+        bad = 1;
+    } else {
+        fputs(text, stdout);
+    }
+    return bad;
+}
+
 int main(int argc, char **argv) {
     char path[64];
     int a = 3;
@@ -147,6 +329,15 @@ int main(int argc, char **argv) {
     char *end = NULL;
     uint32_t param = 0;
 
+    if (argc >= 2 && strcmp(argv[1], "kill") == 0) {
+        return cmd_kill(argc, argv);
+    }
+    if (argc >= 2 && strcmp(argv[1], "guard-ack") == 0) {
+        return cmd_guard_ack(argc, argv);
+    }
+    if (argc >= 2 && strcmp(argv[1], "status") == 0) {
+        return cmd_status(argc);
+    }
     if (argc < 4 || strcmp(argv[1], "sensor") != 0) {
         return usage();
     }

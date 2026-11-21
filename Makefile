@@ -15,7 +15,7 @@ HDRS     := $(wildcard common/include/*.h core/include/*.h target/include/*.h te
 TARGET_INC  := $(CORE_INC) -Itarget/include
 # Strict -std=c11 hides the POSIX/QNX declarations in the SDP headers; _QNX_SOURCE brings them back.
 QNX_DEFS    := -D_QNX_SOURCE
-TARGET_BINS := $(addprefix $(BUILD)/target/,lg-stub lg-gate lg-gate-test lg-prio-demo lg-plant lg-sensor lgctl lg-sample-sink lg-jitter lg-chan-demo lg-controller lg-meter)
+TARGET_BINS := $(addprefix $(BUILD)/target/,lg-stub lg-gate lg-gate-test lg-prio-demo lg-plant lg-sensor lgctl lg-sample-sink lg-jitter lg-chan-demo lg-controller lg-meter lg-supervisor)
 
 .PHONY: host test lint target image deploy evidence clean
 
@@ -77,7 +77,10 @@ $(BUILD)/target/lg-jitter: $(wildcard target/tools/lg-jitter/*.c) $(HDRS)
 $(BUILD)/target/lg-chan-demo: $(wildcard target/tools/lg-chan-demo/*.c) $(HDRS)
 	$(call qcc_build,)
 
-$(BUILD)/target/lg-controller: $(wildcard target/lg-controller/*.c) core/controller_logic.c core/voting.c core/mode_manager.c core/metrics.c core/gate_model.c $(HDRS)
+$(BUILD)/target/lg-controller: $(wildcard target/lg-controller/*.c) core/controller_logic.c core/voting.c core/mode_manager.c core/metrics.c core/gate_model.c core/guards.c core/json_mini.c core/scenario.c $(HDRS)
+	$(call qcc_build,-lslog2)
+
+$(BUILD)/target/lg-supervisor: $(wildcard target/lg-supervisor/*.c) core/supervisor_logic.c $(HDRS)
 	$(call qcc_build,-lslog2)
 
 $(BUILD)/target/lg-meter: $(wildcard target/tools/lg-meter/*.c) core/metrics.c core/gate_model.c $(HDRS)
