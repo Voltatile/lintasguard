@@ -99,7 +99,8 @@ make evidence        # run target tests over ssh and collect outputs into eviden
 # Host apps
 python host/dashboard/app.py        # http://localhost:8000
 python host/station_sim/sim.py      # level 3 station messages
-python host/campaign_runner/run.py campaigns/full_campaign.json
+python host/campaign_runner/run.py campaigns/sensor_faults.json --ip <vm-ip>   # Step 9 campaign
+python host/campaign_runner/run.py campaigns/full_campaign.json --ip <vm-ip>
 ```
 
 Inside the QNX target:
@@ -108,6 +109,7 @@ Inside the QNX target:
 lg-supervisor -c /etc/lintasguard/crossing.json -s /etc/lintasguard/scenarios/normal_day.json
 lgctl status
 cat /dev/lg/gate
+cat /dev/lg/events            # level changes and maintenance tickets
 lgctl sensor west/a fault drift 2
 lgctl kill sensor west/b
 lgctl guard-ack --id G01
@@ -122,7 +124,7 @@ If a command in this list does not exist yet, creating it is part of the relevan
 | Process | Prio (SCHED_FIFO) | Role | Interface |
 |---|---|---|---|
 | `lg-supervisor` | 55 | spawn, heartbeat watch, restart budget (3 per 10 s) | pulses in, `PROC_STATUS` out |
-| `lg-controller` | 50 | 10 ms tick, voting, mode manager (levels), gate commands, events, metrics | `name_attach("lg/controller")` |
+| `lg-controller` | 50 | 10 ms tick, voting, mode manager (levels), gate commands, events, metrics | `name_attach("lg/controller")`, resmgr `/dev/lg/controller`, `/dev/lg/events` |
 | `lg-gate` | 48 | barrier/lights/bell sim, **watchdog lowers gate if controller silent 100 ms**, starts DOWN | resmgr `/dev/lg/gate`, `name_attach("lg/gate")` |
 | `lg-sensor` x6 | 45 | approach A/B per direction + island; noise and fault injection | resmgr `/dev/lg/sensor/<dir>/<id>` |
 | `lg-plant` | 40 | simulated trains and ground truth (controller never sees ground truth) | scenario JSON |
