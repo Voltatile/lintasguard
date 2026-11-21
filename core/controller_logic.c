@@ -339,6 +339,25 @@ static void sensor_tickets(lg_ctl_t *c, const lg_vsensor_t vs[LG_DIR_COUNT][LG_S
             } else {
                 cause = LG_CTL_DIAG_NONE;
             }
+            /*
+             * Silence and staleness already need sensor_silence_ms before the verdict is FAILED;
+             * blindness is FAILED at once (safe for the vote), its ticket waits as long, so a single
+             * blind sample (a truth query lost in a VM stall) raises no ticket.
+             */
+            if (cause == LG_CTL_DIAG_BLIND) {
+                lg_ctl_sensor_t *s = &c->sensor[d][i];
+
+                if (!s->blind_tracking) {
+                    s->blind_tracking = 1;
+                    s->blind_since_ms = now_ms;
+                }
+                if (!lg_elapsed_ge(now_ms, s->blind_since_ms, c->cfg.sensor_silence_ms)) {
+                    c->last_verdict[d][i] = v;
+                    continue; /* not yet a ticket; an open ticket is not closed either (v is FAILED) */
+                }
+            } else {
+                c->sensor[d][i].blind_tracking = 0;
+            }
             if (cause == LG_CTL_DIAG_NONE && v == LG_VERDICT_OK) {
                 if (c->ticket_open[d][i]) {
                     c->ticket_open[d][i] = 0;

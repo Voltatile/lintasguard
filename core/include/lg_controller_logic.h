@@ -126,6 +126,10 @@ typedef struct {
     uint8_t stuck;    /* lg_ctl_diag_t, latched */
     uint32_t rise_ms;
     uint32_t fall_ms;
+
+    /* Tickets: a BLIND ticket waits until quality 0 lasted sensor_silence_ms. */
+    uint8_t blind_tracking;
+    uint32_t blind_since_ms;
 } lg_ctl_sensor_t;
 
 typedef struct {

@@ -377,6 +377,9 @@ static void test_blind_sensor_ticket_and_no_stuck_judgement(void) {
     released(&c, &t);
     g_q[E][A] = 0;
     run(&c, &t, 50);
+    CHECK(c.tickets == 0);                    /* the ticket waits sensor_silence_ms (Step 9 campaign) */
+    CHECK(g_last.level == LG_LEVEL_DEGRADED); /* the verdict does not: FAILED at once */
+    run(&c, &t, 200);
     CHECK(c.tickets == 1);
     e = last_urgent(&c);
     CHECK(e.dir == E && e.id == A && e.code == LG_CTL_DIAG_BLIND);
@@ -391,6 +394,36 @@ static void test_blind_sensor_ticket_and_no_stuck_judgement(void) {
     g_q[E][A] = 97;
     run(&c, &t, 50);
     CHECK(c.ticket_open[E][A] == 0);
+    CHECK(g_wrong_side == 0);
+}
+
+/*
+ * Step 9 campaign: one sample with quality 0 (the sensor's truth query timed out in a VM stall) made a
+ * ticket for a 13 ms glitch. The verdict stays FAILED at once (voting, level), but the ticket waits
+ * until the blindness lasted sensor_silence_ms, like silence and staleness do.
+ */
+static void test_single_blind_sample_raises_no_ticket(void) {
+    lg_ctl_t c;
+    uint32_t t = 0;
+    lg_ctl_cfg_t cfg = lg_ctl_cfg_default();
+    int k;
+
+    released(&c, &t);
+    for (k = 0; k < 5; k++) { /* five glitches, one tick each, 1 s apart */
+        g_q[W][B] = 0;
+        run(&c, &t, 10);
+        CHECK(g_last.level == LG_LEVEL_DEGRADED);
+        g_q[W][B] = 97;
+        run(&c, &t, 1000);
+    }
+    CHECK(c.tickets == 0);
+    /* Just below the bound: still nothing; at the bound: the ticket. */
+    g_q[W][B] = 0;
+    run(&c, &t, cfg.sensor_silence_ms - 10);
+    CHECK(c.tickets == 0);
+    run(&c, &t, 20);
+    CHECK(c.tickets == 1);
+    CHECK(last_urgent(&c).code == LG_CTL_DIAG_BLIND);
     CHECK(g_wrong_side == 0);
 }
 
@@ -538,6 +571,7 @@ int main(void) {
     test_silent_island_raises_urgent_ticket();
     test_stale_sensor_ticket();
     test_blind_sensor_ticket_and_no_stuck_judgement();
+    test_single_blind_sample_raises_no_ticket();
     test_event_seq_is_continuous();
     test_event_text_unknown_values();
     test_no_ticket_before_a_sensor_was_fine();
