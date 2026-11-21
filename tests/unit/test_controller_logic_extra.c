@@ -345,13 +345,24 @@ static void test_unusable_island_fails_the_level(void) {
     H h;
     lg_ctl_out_t o;
 
-    /* Quality 0 with occupied = 1: FAILED island, no timetable before Step 12 -> level 4. */
+    /*
+     * Quality 0 with occupied = 1: the island is unusable at once (ignored for that tick, like a stale
+     * sample); blind for sensor_silence_ms it is FAILED, no timetable before Step 12 -> level 4.
+     * (Step 9, decided with the user: before, one blind sample was level 4 at once.)
+     */
     h_init(&h, &cfg, 0);
     boot_to_10000(&h);
     h.occ[LG_DIR_WEST][LG_SENSOR_ISLAND] = 1;
     h.qual[LG_DIR_WEST][LG_SENSOR_ISLAND] = 0;
     o = h_tick(&h);
+    CHECK(o.level == LG_LEVEL_NORMAL && o.gate_target == LG_GATE_TARGET_UP);
+    while (h.o < 10010 + cfg.sensor_silence_ms - 10) {
+        o = h_tick(&h);
+        CHECK(o.level == LG_LEVEL_NORMAL);
+    }
+    o = h_tick(&h);
     CHECK(o.level == LG_LEVEL_FAILSAFE && o.level_changed && o.level_reason == LG_REASON_DETECT_LOST_NO_INFO);
+    o = h_tick(&h);
     CHECK(o.gate_target == LG_GATE_TARGET_DOWN && o.lights && o.bell);
 
     /* One stale occupied sample is ignored for that tick and changes neither level nor target. */

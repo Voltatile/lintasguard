@@ -144,12 +144,23 @@ static uint8_t sensor_verdict(const lg_ctl_t *c, lg_ctl_sensor_t *s, uint32_t no
     if (s->stale_tracking && lg_elapsed_ge(now_ms, s->stale_since_ms, c->cfg.sensor_silence_ms)) {
         s->stale_failed = 1;
     }
+    /* Blindness (quality 0) is timed like staleness (Step 9, decided with the user). */
+    if (s->seen && s->quality < LG_SENSOR_QUALITY_USABLE_MIN) {
+        if (!s->blind_tracking) {
+            s->blind_tracking = 1;
+            s->blind_since_ms = now_ms;
+        }
+    } else {
+        s->blind_tracking = 0;
+    }
     /*
-     * FAILED when nothing was ever received, nothing for sensor_silence_ms, the sensor is blind, or
-     * its samples have been stale for sensor_silence_ms in a row (they arrive, but are never usable).
-     * A single stale tick only makes the sensor unusable for that tick.
+     * FAILED when nothing was ever received, nothing for sensor_silence_ms, or its samples have been
+     * stale or blind for sensor_silence_ms in a row (they arrive, but are never usable). A single
+     * stale or blind tick only makes the sensor unusable for that tick (lg_vsensor_usable needs a
+     * fresh sample with quality >= 1), so a blind sensor never counts as a clear track.
      */
-    if (!s->seen || s->silent || s->stale_failed || s->quality < LG_SENSOR_QUALITY_USABLE_MIN) {
+    if (!s->seen || s->silent || s->stale_failed ||
+        (s->blind_tracking && lg_elapsed_ge(now_ms, s->blind_since_ms, c->cfg.sensor_silence_ms))) {
         return LG_VERDICT_FAILED;
     }
     return LG_VERDICT_OK;
@@ -339,25 +350,6 @@ static void sensor_tickets(lg_ctl_t *c, const lg_vsensor_t vs[LG_DIR_COUNT][LG_S
             } else {
                 cause = LG_CTL_DIAG_NONE;
             }
-            /*
-             * Silence and staleness already need sensor_silence_ms before the verdict is FAILED;
-             * blindness is FAILED at once (safe for the vote), its ticket waits as long, so a single
-             * blind sample (a truth query lost in a VM stall) raises no ticket.
-             */
-            if (cause == LG_CTL_DIAG_BLIND) {
-                lg_ctl_sensor_t *s = &c->sensor[d][i];
-
-                if (!s->blind_tracking) {
-                    s->blind_tracking = 1;
-                    s->blind_since_ms = now_ms;
-                }
-                if (!lg_elapsed_ge(now_ms, s->blind_since_ms, c->cfg.sensor_silence_ms)) {
-                    c->last_verdict[d][i] = v;
-                    continue; /* not yet a ticket; an open ticket is not closed either (v is FAILED) */
-                }
-            } else {
-                c->sensor[d][i].blind_tracking = 0;
-            }
             if (cause == LG_CTL_DIAG_NONE && v == LG_VERDICT_OK) {
                 if (c->ticket_open[d][i]) {
                     c->ticket_open[d][i] = 0;
@@ -428,8 +420,13 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
         for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
             base[i] = sensor_verdict(c, &c->sensor[d][i], now_ms);
         }
+        /* Alive for the stuck rules: OK and not blind (a blind sample says occupied 0 without seeing). */
         stuck_step(&c->cfg, &c->sensor[d][LG_SENSOR_A], &c->sensor[d][LG_SENSOR_B],
-                   base[LG_SENSOR_A] == LG_VERDICT_OK, base[LG_SENSOR_B] == LG_VERDICT_OK, now_ms);
+                   base[LG_SENSOR_A] == LG_VERDICT_OK &&
+                       c->sensor[d][LG_SENSOR_A].quality >= LG_SENSOR_QUALITY_USABLE_MIN,
+                   base[LG_SENSOR_B] == LG_VERDICT_OK &&
+                       c->sensor[d][LG_SENSOR_B].quality >= LG_SENSOR_QUALITY_USABLE_MIN,
+                   now_ms);
         for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
             lg_ctl_sensor_t *s = &c->sensor[d][i];
             uint8_t v = base[i];

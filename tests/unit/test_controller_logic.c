@@ -144,18 +144,33 @@ static void test_blind_sensor_is_failed(void) {
     int d;
     int i;
 
+    uint32_t start;
+
     lg_ctl_init(&c, &cfg, 0);
     release_boot(&c, &t);
-    /* quality 0 (no truth, fully noisy) is FAILED at once, not a clear track. */
-    for (d = 0; d < LG_DIR_COUNT; d++) {
-        for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
-            uint8_t q = (d == LG_DIR_EAST && i == LG_SENSOR_B) ? 0 : 97;
-            CHECK(lg_ctl_on_sample(&c, (uint8_t)d, (uint8_t)i, 0, q, 0, t, t) == 0);
+    /*
+     * quality 0 (no truth, fully noisy) is never a clear track: the sensor is unusable at once. Since
+     * Step 9 (decided with the user) it is FAILED, like a stale sensor, only when the blindness lasted
+     * sensor_silence_ms: one blind sample (a truth query lost in a VM stall) changes no level.
+     */
+    start = t;
+    do {
+        for (d = 0; d < LG_DIR_COUNT; d++) {
+            for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
+                uint8_t q = (d == LG_DIR_EAST && i == LG_SENSOR_B) ? 0 : 97;
+                CHECK(lg_ctl_on_sample(&c, (uint8_t)d, (uint8_t)i, 0, q, 0, t, t) == 0);
+            }
         }
-    }
-    (void)lg_ctl_on_gate_reply(&c, LG_GATE_UP, t);
-    o = lg_ctl_step(&c, t);
+        (void)lg_ctl_on_gate_reply(&c, LG_GATE_UP, t);
+        o = lg_ctl_step(&c, t);
+        if (t - start < cfg.sensor_silence_ms) {
+            CHECK(o.level == LG_LEVEL_NORMAL);
+            CHECK(c.last_verdict[LG_DIR_EAST][LG_SENSOR_B] == LG_VERDICT_OK);
+        }
+        t += 10;
+    } while (t - start <= cfg.sensor_silence_ms);
     CHECK(o.level >= LG_LEVEL_DEGRADED);
+    CHECK(c.last_verdict[LG_DIR_EAST][LG_SENSOR_B] == LG_VERDICT_FAILED);
 }
 
 /* West approach A reports a train: lights at once, the gate follows after the pre-warning delay. */

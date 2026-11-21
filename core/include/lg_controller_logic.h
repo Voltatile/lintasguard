@@ -21,7 +21,8 @@
  *  - A direction is cleared only when lg_clear_step says so AND no train of the same direction was
  *    seen approaching during the last T_clear (a following train, sensor flicker).
  *  - Interim health (replaced by lg-health in Step 11): a sensor is FAILED when it never sent a
- *    sample, was silent for sensor_silence_ms, or reports quality 0, otherwise OK. The gate is
+ *    sample, was silent for sensor_silence_ms, or reported quality 0 for sensor_silence_ms in a row
+ *    (Step 9; a single blind sample only makes the sensor unusable for that tick), otherwise OK. The gate is
  *    FAILED when it was silent for gate_silence_ms or reports FAULT.
  *  - A gate that has never answered is a WARNING (not a hard event, the boot lock stays) for
  *    gate_boot_grace_ms from the first step; after that it is silent: FAILED and the self check fails.
@@ -127,7 +128,7 @@ typedef struct {
     uint32_t rise_ms;
     uint32_t fall_ms;
 
-    /* Tickets: a BLIND ticket waits until quality 0 lasted sensor_silence_ms. */
+    /* Quality 0 since blind_since_ms: FAILED when it lasted sensor_silence_ms (like staleness). */
     uint8_t blind_tracking;
     uint32_t blind_since_ms;
 } lg_ctl_sensor_t;

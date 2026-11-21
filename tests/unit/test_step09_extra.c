@@ -377,8 +377,8 @@ static void test_blind_sensor_ticket_and_no_stuck_judgement(void) {
     released(&c, &t);
     g_q[E][A] = 0;
     run(&c, &t, 50);
-    CHECK(c.tickets == 0);                    /* the ticket waits sensor_silence_ms (Step 9 campaign) */
-    CHECK(g_last.level == LG_LEVEL_DEGRADED); /* the verdict does not: FAILED at once */
+    CHECK(c.tickets == 0);                 /* blind for less than sensor_silence_ms: */
+    CHECK(g_last.level == LG_LEVEL_NORMAL); /* unusable, but not FAILED yet (Step 9) */
     run(&c, &t, 200);
     CHECK(c.tickets == 1);
     e = last_urgent(&c);
@@ -399,8 +399,9 @@ static void test_blind_sensor_ticket_and_no_stuck_judgement(void) {
 
 /*
  * Step 9 campaign: one sample with quality 0 (the sensor's truth query timed out in a VM stall) made a
- * ticket for a 13 ms glitch. The verdict stays FAILED at once (voting, level), but the ticket waits
- * until the blindness lasted sensor_silence_ms, like silence and staleness do.
+ * ticket for a 13 ms glitch and, on an island, level 4 for good. Decided with the user: a blind sensor
+ * is unusable at once but FAILED (verdict, level, ticket) only when the blindness lasted
+ * sensor_silence_ms, like silence and staleness.
  */
 static void test_single_blind_sample_raises_no_ticket(void) {
     lg_ctl_t c;
@@ -412,7 +413,7 @@ static void test_single_blind_sample_raises_no_ticket(void) {
     for (k = 0; k < 5; k++) { /* five glitches, one tick each, 1 s apart */
         g_q[W][B] = 0;
         run(&c, &t, 10);
-        CHECK(g_last.level == LG_LEVEL_DEGRADED);
+        CHECK(g_last.level == LG_LEVEL_NORMAL); /* one blind sample changes no level (Step 9) */
         g_q[W][B] = 97;
         run(&c, &t, 1000);
     }
