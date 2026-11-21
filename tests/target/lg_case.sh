@@ -94,7 +94,16 @@ sleep 1.5
 $BIN/lg-supervisor -b $BIN -c $BIN/config/crossing.json -s $BIN/scenarios/$SCENARIO \
     </dev/null >/tmp/lg_case_sup.log 2>&1 &
 check "boot: level 0 and gate UP within 25 s" wait_level0
-CPID=$(pid_of lg-controller)
+# pidin on a busy VM sometimes returns nothing: try for up to 2 s (seen once: an empty pid emptied the
+# level trail and failed the pid check of a controller that had run the whole case).
+CPID=""
+i=0
+while [ -z "$CPID" ] && [ $i -lt 20 ]; do
+    CPID=$(pid_of lg-controller)
+    [ -z "$CPID" ] && sleep 0.1
+    i=$((i + 1))
+done
+echo "RESULT controller_pid=$CPID"
 BOOT_MS=$(plant_ms)
 echo "RESULT boot_plant_ms=$BOOT_MS"
 if [ "$FAULT" != "none" ]; then
@@ -155,7 +164,13 @@ END_LEVEL=$(cfield level)
 END_FAILED=$(cfield sensor_failed)
 END_GATE="$(gfield state)$(gfield lights)"
 END_WD=$(gfield watchdog_trips)
-END_CPID=$(pid_of lg-controller)
+END_CPID=""
+i=0
+while [ -z "$END_CPID" ] && [ $i -lt 20 ]; do
+    END_CPID=$(pid_of lg-controller)
+    [ -z "$END_CPID" ] && sleep 0.1
+    i=$((i + 1))
+done
 echo "RESULT end_plant_ms=$END_PLANT"
 
 # lg-meter ends by itself at END_MS.
