@@ -567,16 +567,31 @@ static void test_clearing_extra(void) {
     in.now_ms += cfg.t_clear_ms - 1;
     CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR);
 
-    /* Stale or failed island reading "clear" does not count, and resets tracking. */
+    /*
+     * A stale island reading "clear" never releases the gate. Since the Step 9 review a single stale
+     * tick of an otherwise OK island holds the window instead of restarting it (on the VM such ticks
+     * kept a direction closed for good; Decisions log); a FAILED island still resets it.
+     */
     lg_clear_init(&c);
     in = clear_in(50000, LG_LEVEL_NORMAL);
     lg_clear_step(&c, &cfg, &in);
     in.now_ms += cfg.t_clear_ms / 2;
     in.island.fresh = 0;
-    lg_clear_step(&c, &cfg, &in);
-    in.island.fresh = 1;
-    in.now_ms += cfg.t_clear_ms / 2 + 10;
     CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    in.now_ms += cfg.t_clear_ms / 2 + 10; /* t_clear has passed, but this tick is still stale */
+    CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    in.island.fresh = 1;
+    in.now_ms += 10;
+    CHECK(lg_clear_step(&c, &cfg, &in) == 0); /* the first fresh clear tick releases */
+    lg_clear_init(&c);
+    in = clear_in(50000, LG_LEVEL_NORMAL);
+    lg_clear_step(&c, &cfg, &in);
+    in.now_ms += cfg.t_clear_ms / 2;
+    in.island.verdict = LG_VERDICT_FAILED;
+    CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    in.island.verdict = LG_VERDICT_OK;
+    in.now_ms += cfg.t_clear_ms / 2 + 10;
+    CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR); /* FAILED restarted the window */
     in.island.verdict = LG_VERDICT_FAILED;
     in.now_ms += 10 * cfg.t_clear_ms;
     CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR);

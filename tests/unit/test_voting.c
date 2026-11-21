@@ -278,7 +278,91 @@ static void test_quality(void) {
     CHECK(settled(&c, &cfg, in) == 0);
 }
 
+/*
+ * Step 9 review: a single stale island tick (sample older than LG_SAMPLE_MAX_AGE_MS, sensor still OK)
+ * tells nothing new. It may not restart the T_clear window (on the VM such ticks came often enough to
+ * keep a direction active for good), but the gate may also not be released on a stale tick. A stale
+ * sample that still says occupied, a FAILED or a blind island restart the window as before.
+ */
+static void test_clearing_stale_tick(void) {
+    lg_clear_cfg_t cfg = lg_clear_cfg_default();
+    lg_clear_t c;
+    lg_clear_in_t in = good_input();
+    lg_clear_in_t st;
+    uint32_t t0 = 10000;
+    uint32_t t;
+
+    /* Clear from t0, one stale tick every 1900 ms: clears at t0 + t_clear on a fresh tick. */
+    lg_clear_init(&c);
+    in.now_ms = t0;
+    CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    st = in;
+    st.island.fresh = 0;
+    for (t = t0 + 10; t < t0 + cfg.t_clear_ms; t += 10) {
+        lg_clear_in_t *p = ((t - t0) % 1900u == 0) ? &st : &in;
+
+        p->now_ms = t;
+        CHECK(lg_clear_step(&c, &cfg, p) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    }
+    in.now_ms = t0 + cfg.t_clear_ms;
+    CHECK(lg_clear_step(&c, &cfg, &in) == 0);
+
+    /* Never released on the stale tick itself, even when t_clear has passed. */
+    lg_clear_init(&c);
+    in.now_ms = t0;
+    (void)lg_clear_step(&c, &cfg, &in);
+    st.now_ms = t0 + cfg.t_clear_ms + 100;
+    CHECK(lg_clear_step(&c, &cfg, &st) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    in.now_ms = t0 + cfg.t_clear_ms + 110;
+    CHECK(lg_clear_step(&c, &cfg, &in) == 0); /* the window was held, not restarted */
+
+    /* A stale sample that says occupied restarts the window (the train may be there). */
+    lg_clear_init(&c);
+    in.now_ms = t0;
+    (void)lg_clear_step(&c, &cfg, &in);
+    st.island.occupied = 1;
+    st.now_ms = t0 + 1000;
+    CHECK(lg_clear_step(&c, &cfg, &st) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    st.island.occupied = 0;
+    in.now_ms = t0 + 1010; /* the window starts again here */
+    CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    in.now_ms = t0 + cfg.t_clear_ms + 10;
+    CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    in.now_ms = t0 + 1010 + cfg.t_clear_ms;
+    CHECK(lg_clear_step(&c, &cfg, &in) == 0);
+
+    /* A FAILED island and a blind stale island restart the window. */
+    lg_clear_init(&c);
+    in.now_ms = t0;
+    (void)lg_clear_step(&c, &cfg, &in);
+    st.island.verdict = LG_VERDICT_FAILED;
+    st.now_ms = t0 + 1000;
+    CHECK(lg_clear_step(&c, &cfg, &st) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    in.now_ms = t0 + cfg.t_clear_ms + 10;
+    CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    lg_clear_init(&c);
+    in.now_ms = t0;
+    (void)lg_clear_step(&c, &cfg, &in);
+    st.island.verdict = LG_VERDICT_OK;
+    st.island.quality = 0;
+    st.now_ms = t0 + 1000;
+    CHECK(lg_clear_step(&c, &cfg, &st) & LG_CLEAR_ISLAND_NOT_CLEAR);
+    in.now_ms = t0 + cfg.t_clear_ms + 10;
+    CHECK(lg_clear_step(&c, &cfg, &in) & LG_CLEAR_ISLAND_NOT_CLEAR);
+
+    /* A stale occupied sample is no sighting where one is required (level 3). */
+    lg_clear_init(&c);
+    in.level = LG_LEVEL_UNCERTAIN;
+    st = in;
+    st.island.fresh = 0;
+    st.island.occupied = 1;
+    st.now_ms = t0;
+    (void)lg_clear_step(&c, &cfg, &st);
+    CHECK(c.island_seen_occupied == 0);
+}
+
 int main(void) {
+    test_clearing_stale_tick();
     test_quality();
     test_activation();
     test_margin();

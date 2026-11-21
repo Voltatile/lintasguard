@@ -180,6 +180,7 @@ static void test_opposite_directions_overlap(void) {
         lg_ctl_out_t o;
 
         h.occ[LG_DIR_EAST][LG_SENSOR_A] = (uint8_t)(next >= 20000 && next < 21000); /* east arrives later */
+        h.occ[LG_DIR_EAST][LG_SENSOR_B] = h.occ[LG_DIR_EAST][LG_SENSOR_A]; /* a healthy pair (Step 9) */
         o = h_tick(&h);
         if (o.cleared_mask & (1u << LG_DIR_WEST)) {
             west_cleared = h.o;
@@ -623,6 +624,7 @@ static void wrap_script(uint32_t base, wrap_res_t *r) {
         lg_ctl_out_t o;
 
         h.occ[LG_DIR_WEST][LG_SENSOR_A] = (uint8_t)(next >= 10010 && next < 10510);
+        h.occ[LG_DIR_WEST][LG_SENSOR_B] = h.occ[LG_DIR_WEST][LG_SENSOR_A]; /* a healthy pair (Step 9) */
         h.mute[LG_DIR_WEST][LG_SENSOR_B] = (uint8_t)(next >= 24000 && next < 24250);
         h.gate_override = next >= 30000 ? GATE_SILENT : -1;
         o = h_tick(&h);

@@ -64,6 +64,12 @@
 #define LG_SCORE_OK_MIN 70
 #define LG_SCORE_WARNING_MIN 40
 #define LG_T_DISAGREE_MS 500 /* initial: A/B disagreement tolerated this long */
+/*
+ * Interim stuck rules (Step 9, replaced by lg-health in Step 11): an approach sensor occupied without
+ * a break for longer than this is not a passing train. The slowest normal_day train occupies the
+ * 2 m sensor zone for about 7.6 s (150 m at 20 m/s).
+ */
+#define LG_SENSOR_MAX_OCCUPIED_MS 20000 /* initial */
 
 /* Sample freshness: a sample older than this is not used (README 10.3). */
 #define LG_SAMPLE_MAX_AGE_MS 20

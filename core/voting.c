@@ -56,6 +56,14 @@ uint32_t lg_clear_step(lg_clear_t *c, const lg_clear_cfg_t *cfg, const lg_clear_
     int guard_override = (level == LG_LEVEL_UNCERTAIN) && in->guard_confirm;
     int need_sighting = (level == LG_LEVEL_UNCERTAIN) || !in->axle_counting_healthy;
     int usable = lg_vsensor_usable(&in->island);
+    /*
+     * A stale tick of an otherwise usable island (OK or WARNING, not blind, last sample clear) tells
+     * nothing new: it holds the window (no restart) but can never release the gate (Decisions log,
+     * Step 9 review). A stale sample that says occupied restarts it like an occupied one.
+     */
+    int stale_hold = !usable && !in->island.fresh && !in->island.occupied &&
+                     (in->island.verdict == LG_VERDICT_OK || in->island.verdict == LG_VERDICT_WARNING) &&
+                     in->island.quality >= LG_SENSOR_QUALITY_USABLE_MIN;
     int island_ok;
 
     /* The island must have seen the train (where required) and be clear for t_clear_ms. */
@@ -67,10 +75,10 @@ uint32_t lg_clear_step(lg_clear_t *c, const lg_clear_cfg_t *cfg, const lg_clear_
             c->island_clear_tracking = 1;
             c->island_clear_since_ms = in->now_ms;
         }
-    } else {
+    } else if (!stale_hold) {
         c->island_clear_tracking = 0;
     }
-    island_ok = c->island_clear_tracking &&
+    island_ok = usable && c->island_clear_tracking &&
                 lg_elapsed_ge(in->now_ms, c->island_clear_since_ms, cfg->t_clear_ms) &&
                 (!need_sighting || c->island_seen_occupied);
 

@@ -102,6 +102,9 @@ void lg_clear_reset(lg_clear_t *c); /* call when a new activation starts */
  * In level 3 a guard confirmation replaces the island condition only; a healthy axle
  * counter, other-direction traffic and the minimum down time still apply.
  * Out-of-range levels are treated as level 4.
+ * A stale tick of an otherwise usable island whose last sample was clear does not restart the clear
+ * window (it still counts from the first fresh clear sample), but the gate is never released on a
+ * stale tick: the release needs a fresh clear sample. A stale occupied sample restarts the window.
  */
 uint32_t lg_clear_step(lg_clear_t *c, const lg_clear_cfg_t *cfg, const lg_clear_in_t *in);
 
