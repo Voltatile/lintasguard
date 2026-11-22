@@ -392,8 +392,8 @@ static void test_restart_never_waits(void) {
     uint32_t pid = 100;
 
     lg_sup_init(&s, &c);
-    /* Bring everything up stage by stage. */
-    for (p = 0; p < 3; p++) {
+    /* Bring everything up stage by stage (stages 0 to 3; the bridge is stage 3 since Step 10). */
+    for (p = 0; p < 4; p++) {
         int q;
 
         n = lg_sup_step(&s, t, a, LG_SUP_MAX_ACTIONS);

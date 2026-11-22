@@ -59,6 +59,7 @@ killproc() {
 
 cleanup() { # the supervisor first, so that it does not start anything again
     killproc lg-supervisor
+    killproc lg-bridge
     killproc lg-meter
     killproc lg-controller
     killproc lg-sensor
@@ -138,7 +139,7 @@ start_sup() { # start_sup <scenario file name>
         </dev/null >/tmp/sup.log 2>&1 &
     wait_for /dev/lg/supervisor 50
 }
-all_running() { [ "$(grep -c 'state=RUNNING' /dev/lg/supervisor)" = "9" ]; }
+all_running() { [ "$(grep -c 'state=RUNNING' /dev/lg/supervisor)" = "10" ]; } # nine + lg-bridge (Step 10)
 # A fresh system: everything started by the supervisor, boot check passed, gate UP.
 fresh() { # fresh <scenario file name>
     cleanup
@@ -170,10 +171,11 @@ level_trail() {
 started_names() { # names in the order the supervisor $1 started them (first start of each)
     slog2info 2>/dev/null | grep -E "lg_supervisor\.$1[[:space:]]" | sed -n 's/.* started \([^ ]*\) as pid.*/\1/p'
 }
-boot_order_ok() { # the gate first, the controller last, the plant before the controller
+boot_order_ok() { # the gate first, the controller then the bridge last (Step 10), the plant before the controller
     list=$(started_names "$1")
-    [ "$(echo "$list" | sed -n 1p)" = "gate" ] && [ "$(echo "$list" | tail -n 1)" = "controller" ] &&
-        [ "$(echo "$list" | grep -c '^sensor/')" = "6" ] && [ "$(echo "$list" | wc -l | tr -d ' ')" = "9" ]
+    [ "$(echo "$list" | sed -n 1p)" = "gate" ] && [ "$(echo "$list" | tail -n 1)" = "bridge" ] &&
+        [ "$(echo "$list" | tail -n 2 | head -n 1)" = "controller" ] &&
+        [ "$(echo "$list" | grep -c '^sensor/')" = "6" ] && [ "$(echo "$list" | wc -l | tr -d ' ')" = "10" ]
 }
 all_sensor_totals_zero() {
     for s in $SENSOR_NAMES; do
@@ -182,7 +184,7 @@ all_sensor_totals_zero() {
     return 0
 }
 all_hb_ok() {
-    for n in controller gate plant sensor/west/a sensor/west/b sensor/west/island sensor/east/a sensor/east/b sensor/east/island; do
+    for n in controller gate plant bridge sensor/west/a sensor/west/b sensor/west/island sensor/east/a sensor/east/b sensor/east/island; do
         v=$(sfield $n hb_rx)
         [ -n "$v" ] && [ "$v" -ge 20 ] || return 1
     done
@@ -231,9 +233,10 @@ echo "=== part 1: boot through the supervisor (scenario without trains)"
 start_sup test_idle.json
 SPID=$(pid_of lg-supervisor)
 check "the supervisor device appears and a supervisor runs" [ -e /dev/lg/supervisor ] && [ -n "$SPID" ]
-check "the controller, started last, reaches RUNNING within 15 s" wait_sup controller state RUNNING 150
+check "the controller reaches RUNNING within 15 s" wait_sup controller state RUNNING 150
+check "the bridge, started last (Step 10), reaches RUNNING within 5 s" wait_sup bridge state RUNNING 50
 check "every row of the table is RUNNING" all_running
-check "start order: the gate first, the controller last, six sensors, nine in all" boot_order_ok "$SPID"
+check "start order: the gate first, the controller, then the bridge last, six sensors, ten in all" boot_order_ok "$SPID"
 check "the supervisor runs SCHED_FIFO 55 (logged by the process itself)" sup_prio_logged "$SPID"
 check "boot check: level 0 once the sensors are healthy" wait_eq cfield level 0 200
 check "the gate rises to UP with the lights off" wait_eq gfield state UP 100
@@ -245,7 +248,7 @@ check "the controller got the supervisor's table (proc_status_rx at least 10)" a
 check "the controller treats the supervisor as armed and alive" [ "$(cfield sup_armed)$(cfield sup_silent)" = "10" ]
 check "no process is reported down to the controller (proc_bad 0x0)" [ "$(cfield proc_bad)" = "0x0" ]
 check "the supervisor's link to the controller is up" [ "$(grep -o 'linked=[01]' /dev/lg/supervisor)" = "linked=1" ]
-check "heartbeats arrive from all nine processes (hb_rx at least 20 each)" all_hb_ok
+check "heartbeats arrive from all ten processes (hb_rx at least 20 each)" all_hb_ok
 check "no heartbeat was ignored in a normal run" [ "$(sfield gate hb_ignored)$(sfield controller hb_ignored)" = "00" ]
 check "writing to /dev/lg/supervisor is refused" write_refused
 check "the gate watchdog did not trip (the controller keeps feeding it)" [ "$(gfield watchdog_trips)" = "0" ]
@@ -307,7 +310,7 @@ check "one lost sensor of a redundant pair is level 2, not 4" wait_eq cfield lev
 sleep 12 # longer than the 10 s window: a DEAD sensor must stay DEAD
 check "still DEAD with no pid after the window" [ "$(sfield sensor/east/b state)$(sfield sensor/east/b pid)" = "DEAD0" ]
 check "lgctl kill on a DEAD sensor reports that nothing runs (exit 1)" [ "$(exit_code_of $BIN/lgctl kill sensor east/b)" = "1" ]
-check "the other eight processes are RUNNING" [ "$(grep -c 'state=RUNNING' /dev/lg/supervisor)" = "8" ]
+check "the other nine processes are RUNNING" [ "$(grep -c 'state=RUNNING' /dev/lg/supervisor)" = "9" ]
 check "the gate stays UP and the watchdog did not trip" gate_up_dark
 
 echo "=== part 5: the controller is killed (lgctl kill controller)"
@@ -444,8 +447,9 @@ echo "=== part 12: normal_day with lg-meter, three kills during the run"
 cleanup
 sleep 1.5
 start_sup normal_day.json
-check "the controller, started last, reaches RUNNING within 15 s" wait_sup controller state RUNNING 150
-check "all nine rows are RUNNING" all_running
+check "the controller reaches RUNNING within 15 s" wait_sup controller state RUNNING 150
+check "the bridge, started last (Step 10), reaches RUNNING within 5 s" wait_sup bridge state RUNNING 50
+check "all ten rows are RUNNING" all_running
 $BIN/lg-meter -e 285000 -m 330 -o $CSV </dev/null >/tmp/meter.out 2>&1 &
 MPID=$!
 check "the plant reaches 108 s" wait_plant_ms 108000 1500

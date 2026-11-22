@@ -95,7 +95,7 @@ def parse_output(name: str, code: int, text: str) -> CaseResult:
 
 def cleanup_target(ip: str) -> None:
     """Stop every LintasGuard process on the target (the supervisor first, so it restarts nothing)."""
-    names = "lg-supervisor lg-meter lg-controller lg-sensor lg-plant lg-gate"
+    names = "lg-supervisor lg-bridge lg-meter lg-controller lg-sensor lg-plant lg-gate"
     cmd = (f"for n in {names}; do for p in $(pidin -p $n -F '%a' 2>/dev/null | grep -E '^ *[0-9]+$'); "
            "do kill -9 $p; done; done; true")
     try:

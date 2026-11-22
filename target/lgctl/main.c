@@ -1,7 +1,7 @@
 /*
  * lgctl: command line control of LintasGuard (README 4.2, 10.2).
  *
- *   lgctl kill sensor <dir>/<id> | gate | controller | plant
+ *   lgctl kill sensor <dir>/<id> | gate | controller | plant | bridge
  *                                      SIGKILL the process the supervisor started (pid from
  *                                      /dev/lg/supervisor): what a crash looks like to the system
  *   lgctl guard-ack --id <guard>       acknowledge level 4 (message to lg/controller). The guard id
@@ -49,7 +49,7 @@ static int usage(void) {
     (void)fprintf(stderr,
                   "usage: lgctl sensor <dir>/<id> [fault] <mode> [param]\n"
                   "       lgctl sensor <dir>/<id> stats\n"
-                  "       lgctl kill sensor <dir>/<id> | gate | controller | plant\n"
+                  "       lgctl kill sensor <dir>/<id> | gate | controller | plant | bridge\n"
                   "       lgctl guard-ack --id <guard>\n"
                   "       lgctl status\n"
                   "  dir west|east, id a|b|island\n"
@@ -222,7 +222,7 @@ static int cmd_kill(int argc, char **argv) {
         }
         (void)snprintf(name, sizeof name, "sensor/%s", argv[3]);
     } else if (argc == 3 && (strcmp(argv[2], "gate") == 0 || strcmp(argv[2], "controller") == 0 ||
-                             strcmp(argv[2], "plant") == 0)) {
+                             strcmp(argv[2], "plant") == 0 || strcmp(argv[2], "bridge") == 0)) {
         (void)snprintf(name, sizeof name, "%s", argv[2]);
     } else {
         return usage();

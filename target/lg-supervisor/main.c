@@ -156,6 +156,9 @@ static const char *binary_of(int proc) {
     if (proc == LG_PROC_CONTROLLER) {
         return "lg-controller";
     }
+    if (proc == LG_PROC_BRIDGE) {
+        return "lg-bridge";
+    }
     if (proc >= LG_PROC_SENSOR_BASE && proc < LG_PROC_PLANT) {
         return "lg-sensor";
     }

@@ -60,7 +60,7 @@ static int g_loop_started; /* after this, logging goes to slog2 only */
 static iofunc_attr_t g_attr;
 static resmgr_connect_funcs_t g_connect_funcs;
 static resmgr_io_funcs_t g_io_funcs;
-static char g_text[200];
+static char g_text[2048]; /* summary line + one line per visible train (Step 10) */
 
 static void logf_(uint8_t severity, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 

@@ -55,6 +55,7 @@ pid_of() { pidin -p "$1" -F '%a' 2>/dev/null | grep -E '^ *[0-9]+$' | head -n 1 
 killproc() { for p in $(pidin -p "$1" -F '%a' 2>/dev/null | grep -E '^ *[0-9]+$'); do kill -9 $p; done; }
 cleanup() { # the supervisor first, so that it does not start anything again
     killproc lg-supervisor
+    killproc lg-bridge
     killproc lg-meter
     killproc lg-controller
     killproc lg-sensor

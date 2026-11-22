@@ -373,7 +373,7 @@ static void test_status_actions(void) {
 
     lg_sup_init(&s, &cfg);
     n = lg_sup_step(&s, 0, a, LG_SUP_MAX_ACTIONS);
-    CHECK(count_kind(a, n, LG_SUP_ACT_STATUS, -1) == 9); /* gate, plant, six sensors, controller */
+    CHECK(count_kind(a, n, LG_SUP_ACT_STATUS, -1) == 10); /* gate, plant, six sensors, controller, bridge (Step 10) */
     CHECK(count_kind(a, n, LG_SUP_ACT_STATUS, LG_PROC_HEALTH) == 0);
     t = boot(&s, 10);
     CHECK(t != 0);
@@ -436,7 +436,8 @@ static void test_text(void) {
     CHECK(strstr(buf, "proc=gate id=2 state=RUNNING phase=RUNNING") != NULL);
     CHECK(strstr(buf, "proc=sensor/west/a id=3") != NULL);
     CHECK(strstr(buf, "proc=sensor/east/island id=8") != NULL);
-    CHECK(strstr(buf, "proc=bridge") == NULL); /* not installed */
+    CHECK(strstr(buf, "proc=bridge id=12") != NULL); /* installed since Step 10 */
+    CHECK(strstr(buf, "proc=health") == NULL);      /* not installed (Step 11) */
     CHECK(strstr(buf, "restarts=0/3") != NULL);
     /* A small buffer is cut at a line end and stays NUL terminated. */
     n = lg_sup_text(&s, t, small, sizeof small);
