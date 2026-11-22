@@ -1,0 +1,224 @@
+===== stuck_occupied_east_a_during_train (exit 1)
+=== case stuck_occupied_east_a_during_train: sensor east/a fault stuck-occupied inject 61000 clear 100000 end 215000 scenario sensor_faults.json
+RESULT case=stuck_occupied_east_a_during_train
+PASS: boot: level 0 and gate UP within 25 s
+RESULT controller_pid=1155911715
+RESULT boot_plant_ms=9279
+PASS: the boot release came before the injection time
+PASS: inject: lgctl sensor east/a fault stuck-occupied (exit 0)
+RESULT inject_plant_ms=61018
+PASS: clear: lgctl sensor east/a fault none (exit 0)
+RESULT clear_plant_ms=100027
+RESULT end_plant_ms=215119
+--- lg-meter output (exit 0):
+key,value
+plant_end_ms,215009
+meter_samples,20572
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,20572
+meter_coverage_pct,100
+meter_max_gap_ms,135
+meter_max_sample_gap_ms,135
+trains,5
+trains_without_warning,0
+warning_count,5
+warning_max_ms,96097
+warning_avg_ms,41913
+closure_count,2
+closure_max_ms,17639
+closure_avg_ms,15961
+closed_ms,162921
+observed_ms,205710
+closure_ms_per_hour,2851176
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,1733
+controller_cycles,2
+controller_level_end,4
+--- /dev/lg/events:
+seq=1 t_ms=27330682 kind=LEVEL severity=INFO from=4 to=0 reason=2
+seq=2 t_ms=27405464 kind=NOTIFY severity=URGENT to=maintenance sensor=east/a diag=STUCK_OCCUPIED level=0
+seq=3 t_ms=27405464 kind=LEVEL severity=WARNING from=0 to=2 reason=4
+seq=4 t_ms=27441868 kind=NOTIFY severity=URGENT to=maintenance sensor=west/b diag=STALE level=2
+seq=5 t_ms=27441868 kind=NOTIFY severity=URGENT to=maintenance sensor=east/b diag=STALE level=2
+seq=6 t_ms=27441868 kind=LEVEL severity=URGENT from=2 to=4 reason=8
+seq=7 t_ms=27441911 kind=NOTIFY severity=URGENT to=maintenance sensor=west/a diag=STALE level=4
+seq=8 t_ms=27441911 kind=NOTIFY severity=URGENT to=maintenance sensor=west/island diag=STALE level=4
+seq=9 t_ms=27441934 kind=NOTIFY severity=URGENT to=maintenance sensor=east/island diag=STALE level=4
+seq=10 t_ms=27442005 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=4
+seq=11 t_ms=27442005 kind=NOTIFY severity=INFO to=maintenance sensor=west/b diag=OK level=4
+seq=12 t_ms=27442005 kind=NOTIFY severity=INFO to=maintenance sensor=west/island diag=OK level=4
+seq=13 t_ms=27442005 kind=NOTIFY severity=INFO to=maintenance sensor=east/b diag=OK level=4
+seq=14 t_ms=27442005 kind=NOTIFY severity=INFO to=maintenance sensor=east/island diag=OK level=4
+seq=15 t_ms=27446105 kind=NOTIFY severity=URGENT to=maintenance sensor=west/a diag=STALE level=4
+seq=16 t_ms=27446105 kind=NOTIFY severity=URGENT to=maintenance sensor=west/island diag=STALE level=4
+seq=17 t_ms=27446184 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=4
+seq=18 t_ms=27446184 kind=NOTIFY severity=INFO to=maintenance sensor=west/island diag=OK level=4
+seq=19 t_ms=27482038 kind=NOTIFY severity=INFO to=maintenance sensor=east/a diag=OK level=4
+seq=20 t_ms=27521620 kind=NOTIFY severity=URGENT to=maintenance sensor=west/a diag=STALE level=4
+seq=21 t_ms=27521620 kind=NOTIFY severity=URGENT to=maintenance sensor=west/island diag=STALE level=4
+seq=22 t_ms=27521620 kind=NOTIFY severity=URGENT to=maintenance sensor=east/island diag=STALE level=4
+seq=23 t_ms=27521644 kind=NOTIFY severity=URGENT to=maintenance sensor=east/a diag=SILENT level=4
+seq=24 t_ms=27521659 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=4
+seq=25 t_ms=27521659 kind=NOTIFY severity=INFO to=maintenance sensor=west/island diag=OK level=4
+seq=26 t_ms=27521659 kind=NOTIFY severity=INFO to=maintenance sensor=east/a diag=OK level=4
+seq=27 t_ms=27521659 kind=NOTIFY severity=INFO to=maintenance sensor=east/island diag=OK level=4
+--- /dev/lg/controller:
+level=4 boot_lock=0 gate=DOWN gate_silent=0 target=DOWN lights=1 bell=1 active=1,1 activations=4 cycles=2 ticks=20735 late_ticks=1734 samples=122753 rejected=0 gate_replies=20732 gate_timeouts=2 sup_armed=1 sup_silent=0 proc_status_rx=1720 proc_status_rejected=0 proc_bad=0x0 guard_acks=0 tickets=12 sensor_failed=0x0 events=27 unmet=0x10,0x10 ignored_ticks=288 gate_connects=1 gate_dropped=0 guards=1 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+--- sensors:
+west/a: occupied=0 quality=97 axles=24 raw=217 fault=NONE seq=21119 tick=21119
+west/b: occupied=0 quality=97 axles=24 raw=212 fault=NONE seq=21149 tick=21149
+west/island: occupied=0 quality=97 axles=24 raw=188 fault=NONE seq=21110 tick=21110
+east/a: occupied=0 quality=97 axles=18 raw=177 fault=NONE seq=21118 tick=21118
+east/b: occupied=0 quality=97 axles=18 raw=179 fault=NONE seq=21085 tick=21085
+east/island: occupied=0 quality=97 axles=18 raw=223 fault=NONE seq=21138 tick=21138
+--- supervisor row of sensor/east/a:
+proc=sensor/east/a id=6 state=RUNNING phase=RUNNING pid=1155911711 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=6990 hb_ignored=0
+RESULT level_trail=4>0,0>2,2>4,
+RESULT max_level=4
+RESULT level_up_plant_ms=80069
+RESULT level0_plant_ms=
+RESULT recovery_inject_ms=
+RESULT recovery_clear_ms=
+RESULT supervisor_recovery_ms=0
+RESULT supervisor_restarts=0
+RESULT tickets=12
+RESULT events=27
+RESULT sensor_failed=0x0
+RESULT unmet=0x10,0x10
+RESULT late_ticks=1734
+RESULT ticks=20751
+RESULT trains=5
+RESULT trains_without_warning=0
+RESULT closure_count=2
+RESULT closure_max_ms=17639
+RESULT closure_ms_per_hour=2851176
+RESULT warning_avg_ms=41913
+RESULT wrong_side_events=0
+RESULT wrong_side_ticks=0
+RESULT meter_coverage_pct=100
+RESULT meter_max_gap_ms=135
+RESULT controller_cycles=2
+PASS: wrong_side_events is 0
+PASS: wrong_side_ticks is 0
+PASS: lg-meter observed the whole run and saw no wrong side (exit 0)
+PASS: every train reached the island with the lights on (trains_without_warning 0)
+PASS: trains seen by the meter: 5
+FAIL: every train had a gate closure (closure_count at least 5)
+PASS: the controller was not restarted (same pid at the end)
+FAIL: highest level after the boot release is 2 (never 3 or 4)
+PASS: an URGENT ticket for east/a with diag STUCK_OCCUPIED
+FAIL: exactly one ticket (tickets 1)
+FAIL: the level trail is boot release, down to 2, back to 0
+PASS: level 2 came after the injection (watched from the boot release)
+FAIL: level 0 again before the end (recovery recorded)
+FAIL: back to level 0 not before T_stable after the fault ended
+PASS: the sensor process was not restarted (total 0)
+FAIL: end: level 0
+PASS: end: no sensor FAILED (sensor_failed 0x0)
+FAIL: end: gate UP with the lights off
+PASS: the gate watchdog never tripped
+RESULT checks=23 failed=8
+FAIL: case stuck_occupied_east_a_during_train (8 of 23 checks failed)
+
+===== crash_west_a_during_train (exit 0)
+=== case crash_west_a_during_train: sensor west/a fault crash inject 21000 clear 0 end 135000 scenario sensor_faults.json
+RESULT case=crash_west_a_during_train
+PASS: boot: level 0 and gate UP within 25 s
+RESULT controller_pid=1245986851
+RESULT boot_plant_ms=9421
+PASS: the boot release came before the injection time
+RESULT inject_lgctl_rc=1
+RESULT inject_plant_ms=21022
+RESULT end_plant_ms=135069
+--- lg-meter output (exit 0):
+key,value
+plant_end_ms,135006
+meter_samples,12557
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,12557
+meter_coverage_pct,100
+meter_max_gap_ms,48
+meter_max_sample_gap_ms,48
+trains,3
+trains_without_warning,0
+warning_count,3
+warning_max_ms,18170
+warning_avg_ms,15826
+closure_count,3
+closure_max_ms,18148
+closure_avg_ms,15286
+closed_ms,69879
+observed_ms,125562
+closure_ms_per_hour,2003507
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,1101
+controller_cycles,3
+controller_level_end,0
+--- /dev/lg/events:
+seq=1 t_ms=27548281 kind=LEVEL severity=INFO from=4 to=0 reason=2
+seq=2 t_ms=27564193 kind=NOTIFY severity=URGENT to=maintenance sensor=west/a diag=RESTARTING level=0
+seq=3 t_ms=27564193 kind=LEVEL severity=WARNING from=0 to=2 reason=4
+seq=4 t_ms=27564215 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=2
+seq=5 t_ms=27594222 kind=LEVEL severity=INFO from=2 to=0 reason=12
+--- /dev/lg/controller:
+level=0 boot_lock=0 gate=UP gate_silent=0 target=UP lights=0 bell=0 active=0,0 activations=3 cycles=3 ticks=13284 late_ticks=1101 samples=80070 rejected=0 gate_replies=13283 gate_timeouts=0 sup_armed=1 sup_silent=0 proc_status_rx=1083 proc_status_rejected=0 proc_bad=0x0 guard_acks=0 tickets=1 sensor_failed=0x0 events=5 unmet=0x0,0x0 ignored_ticks=184 gate_connects=1 gate_dropped=0 guards=1 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+--- sensors:
+west/a: occupied=0 quality=97 axles=16 raw=188 fault=NONE seq=11378 tick=11378
+west/b: occupied=0 quality=97 axles=16 raw=189 fault=NONE seq=13492 tick=13492
+west/island: occupied=0 quality=97 axles=16 raw=177 fault=NONE seq=13355 tick=13355
+east/a: occupied=0 quality=97 axles=8 raw=193 fault=NONE seq=13491 tick=13491
+east/b: occupied=0 quality=97 axles=8 raw=186 fault=NONE seq=13390 tick=13390
+east/island: occupied=0 quality=97 axles=8 raw=201 fault=NONE seq=13350 tick=13350
+--- supervisor row of sensor/west/a:
+proc=sensor/west/a id=3 state=RUNNING phase=RUNNING pid=1255059495 restarts=0/3 total=1 why=exit recovery_ms=22 hb_rx=4475 hb_ignored=0
+RESULT level_trail=4>0,0>2,2>0,
+RESULT max_level=2
+RESULT level_up_plant_ms=21272
+RESULT level0_plant_ms=51193
+RESULT recovery_inject_ms=30171
+RESULT recovery_clear_ms=30171
+RESULT supervisor_recovery_ms=22
+RESULT supervisor_restarts=1
+RESULT tickets=1
+RESULT events=5
+RESULT sensor_failed=0x0
+RESULT unmet=0x0,0x0
+RESULT late_ticks=1101
+RESULT ticks=13296
+RESULT trains=3
+RESULT trains_without_warning=0
+RESULT closure_count=3
+RESULT closure_max_ms=18148
+RESULT closure_ms_per_hour=2003507
+RESULT warning_avg_ms=15826
+RESULT wrong_side_events=0
+RESULT wrong_side_ticks=0
+RESULT meter_coverage_pct=100
+RESULT meter_max_gap_ms=48
+RESULT controller_cycles=3
+PASS: wrong_side_events is 0
+PASS: wrong_side_ticks is 0
+PASS: lg-meter observed the whole run and saw no wrong side (exit 0)
+PASS: every train reached the island with the lights on (trains_without_warning 0)
+PASS: trains seen by the meter: 3
+PASS: every train had a gate closure (closure_count at least 3)
+PASS: the controller was not restarted (same pid at the end)
+PASS: highest level after the boot release is 2 (never 3 or 4)
+PASS: an URGENT ticket for west/a with diag SILENT|RESTARTING
+PASS: exactly one ticket (tickets 1)
+PASS: the level trail is boot release, down to 2, back to 0
+PASS: level 2 came after the injection (watched from the boot release)
+PASS: level 0 again before the end (recovery recorded)
+PASS: back to level 0 not before T_stable after the fault ended
+PASS: the supervisor restarted the sensor once (total 1)
+PASS: end: level 0
+PASS: end: no sensor FAILED (sensor_failed 0x0)
+PASS: end: gate UP with the lights off
+PASS: the gate watchdog never tripped
+RESULT checks=21 failed=0
+PASS: case crash_west_a_during_train (21 checks)
+

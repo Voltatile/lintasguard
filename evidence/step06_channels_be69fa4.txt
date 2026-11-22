@@ -1,0 +1,31 @@
+=== step06_channels: Sun Nov 22 03:18:36 UTC 2026
+=== QNX lintasguard 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64
+--- pulse priority:
+pulse: the process started at priority 10
+pulse: the thread set itself to FIFO 45
+pulse: SIGEV_PULSE_PRIO_INHERIT, default channel      priority after the pulse: 10
+pulse: explicit priority, default channel             priority after the pulse: 45
+pulse: SIGEV_PULSE_PRIO_INHERIT, fixed-priority channel priority after the pulse: 45
+pulse: explicit priority, fixed-priority channel      priority after the pulse: 45
+PASS: SIGEV_PULSE_PRIO_INHERIT on a default channel runs the receiver at the priority the process started with, not at 45
+PASS: an explicit pulse priority runs the receiver at 45 (default channel)
+PASS: an explicit pulse priority runs the receiver at 45 (fixed-priority channel)
+--- an ordinary channel (not private):
+PASS: the private-channel experiment runs (ordinary channel)
+private: server pid=869290009 chid=1 private=0, own attach: ok
+private: server received a pulse with code 1
+private: server received a pulse with code 2
+private: another process attaches: ok
+private: another process sends a pulse: sent
+PASS: ordinary channel: another process can attach
+PASS: ordinary channel: the pulse of the other process reaches the owner as a tick
+--- a private channel (_NTO_CHF_PRIVATE):
+PASS: the private-channel experiment runs (private channel)
+private: server pid=869371929 chid=1 private=1, own attach: ok
+private: server received a pulse with code 1
+private: server received nothing more
+private: another process attaches: Operation not permitted
+PASS: private channel: the owner can attach to its own channel
+PASS: private channel: another process cannot attach
+PASS: private channel: no pulse of another process arrives
+=== RESULT: 10 checks, 0 failed

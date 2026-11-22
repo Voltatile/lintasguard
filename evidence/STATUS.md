@@ -1,6 +1,6 @@
 # Evidence status
 
-Updated: 2026-11-21 (Step 8). Commit: see `git log` (first commit = Step 1 and Step 2).
+Updated: 2026-11-22 (Step 9). Commit: see `git log` (first commit = Step 1 and Step 2).
 
 ## Step 1: Accounts and tools
 
@@ -182,6 +182,34 @@ Not done or not claimed in Step 8:
 - A supervisor that never starts is not detected by the controller (not armed before the first status).
 - Review findings left as they are (Decisions log, 2026-11-21): children inherit SCHED_FIFO 55 from the supervisor until they set their own priority, no spawn backoff, a lost exit pulse is dropped, `lgctl guard-ack` has no timeout on `name_open`, a second supervisor started while orphaned children still run was not tried.
 - `lg-health` (Step 11), timetable (Step 12), `lg-bridge`, image baking and a startup script. A malformed `PROC_STATUS` or `GUARD_ACK` on the target was not provoked (host unit tests only).
+
+## Step 9: level 2, redundancy (MVP cut line)
+
+Branch `step-09-redundancy`, final code commit `da90721` (Step 9 commits `9a91d76` to `da90721`). The VM runs listed as final were made from `da90721`; the only uncommitted files were these docs and the evidence files themselves. The host was loaded during all VM runs (free RAM measured between 0.7 and 3.1 GB, CPU load 10 to 76 percent, Opera, Discord and Docker running). The VM has 2 vCPUs and 1024 MB.
+
+| Check | Result | Verified where |
+|---|---|---|
+| Interim stuck rules (MISSED_TRAIN, STUCK_OCCUPIED, blip rule, latch released by an agreeing run or a supervisor restart) | `test_controller_stuck`, `test_step09_extra`: pass | Windows host |
+| Events and maintenance tickets (ring of 32, URGENT on FAILED or RESTARTING/DEAD, INFO on recovery, PROC_DEAD escalation, status fields `tickets`, `sensor_failed`, `events`, `unmet`, `stalls`) | `test_controller_events`: pass; the longest status line is under 512 bytes (worst-case test) | Windows host |
+| Controller stall rule and one clock for stale and blind (after two reviews) | `test_controller_stall` (15 functions): pass. Three of them fail on the `be69fa4` core (level 4 left after a stall, clocks pushed into the future, stale/blind alternating never FAILED) | Windows host |
+| Host replay `replay_sensor_faults` | 8 baseline seeds: 0 tickets, level 0. 6 fault cases: one ticket each, level 2 only, back to level 0, 0 wrong-side events. Stale island ticks (every 1900, 990, 470 ms) and whole-system pauses (100, 250, 400 ms every 7.73 s): 6 cycles, 0 tickets, level 0, 0 wrong-side | Windows host |
+| `make test`, `make target` | 30 test binaries pass, including the property test, the replay sweeps and the 2^31 ms wrap test; target builds without warnings | Windows host, SDP 8.0 |
+| **README check: `campaigns/sensor_faults.json` passes on QNX** | yes, all 7 cases pass on `da90721`: `baseline`, `stuck_occupied_west_a`, `stuck_clear_west_a`, `stuck_clear_east_b_during_train`, `stuck_occupied_east_a_during_train`, `crash_west_a_during_train`, `hang_east_a_during_train`. The cases were run in groups (one runner call per group) because Claude Code stops long background shells when the host is short of memory. `stuck_clear_west_a` failed its first attempt (MISSED_TRAIN ticket and level 2 were correct, then west/a and east/a looked SILENT at the same moment and the gate silent, level 4; the controller counted 4 stalls in that run) and passed the retry | **QNX 8.0 VM**, `evidence/step09_campaign/da90721/` (`g1` to `g5_hang_and_retry`) |
+| Trains protected | wrong-side events 0 and wrong-side ticks 0 in every case of every archived run, including the failed attempts; every train reached the island with the lights on | **QNX 8.0 VM**, all sets in `evidence/step09_campaign/` |
+| Recovery recorded (`da90721`) | stuck occupied west/a: level 0 again 123966 ms after the injection, 83965 ms after the fault was cleared (the latch waits for an agreeing train, then `T_stable`). Stuck clear west/a: 123807 / 83807 ms. Stuck clear east/b (injected during a train, seen at the next east train): 193498 / 89442 ms. Stuck occupied east/a: 125505 / 86527 ms. Crash west/a: 30098 ms, supervisor restart 21 ms, ticket `RESTARTING`. Hang east/a: 30318 ms, supervisor restart 22 ms | **QNX 8.0 VM**, same files |
+| Closure per hour (`da90721`) | baseline 1814451 ms per hour; stuck occupied west/a 2282221 (the gate stays down until the stuck sensor is isolated, 20 s); stuck occupied east/a 2219462; stuck clear west/a 2017304; stuck clear east/b 1952877; crash 1999529; hang 1995652 | **QNX 8.0 VM**, same files |
+| `/dev/lg/events` on the target | lists level changes and tickets, for example `kind=NOTIFY severity=URGENT to=maintenance sensor=west/a diag=STUCK_OCCUPIED`; writes refused (EPERM, checked by hand in a probe that was not archived) | **QNX 8.0 VM**, the `--- /dev/lg/events` blocks of the campaign files |
+| Regression on `da90721` | `step05_gate` 36 checks, `step05_priority` 3, `step06_channels` 10, `step06_sensors` 82, `step07_controller` 56 (0 guard acknowledgements, the controller counted 3 stalls and stayed out of level 4), `step08_supervisor` 150 (part 8: level 2 three seconds after the plant restart, level 0 after T_stable, no acknowledgement); 0 failed in all | **QNX 8.0 VM**, `evidence/step0*_da90721.txt` |
+| Step 8 open item: `step07_controller.sh` on a quiet host | not on a quiet host; it passed on the loaded host on `1aa566b`, `be69fa4` and `da90721` without a disturbed run | **QNX 8.0 VM**, `evidence/step07_controller_step09.txt`, `_be69fa4.txt`, `_da90721.txt` |
+
+Earlier runs, kept as history: `evidence/step09_campaign/1aa566b/` and `74dc80d/` (failures from VM stalls that led to the blind-timing and stall rules), `be69fa4/` (all 7 pass, before the second review), `evidence/step08_supervisor_step09.txt` (144/5 on `74dc80d`, part 8 before its change), `evidence/step08_supervisor_be69fa4.txt`, `evidence/step0*_be69fa4.txt`.
+
+Rules from earlier steps changed in Step 9 (Decisions log): a single stale island tick holds the T_clear window (reviewer finding); a blind sensor is FAILED after 200 ms, with stale and blind on one latched clock (decided with the user); a stuck latch survives a silence; the controller counts its own stall as 50 ms of silence and of stable time (reverses a Step 8 choice); step08 part 8 accepts level 2 or level 4 after a plant restart. Two of them are marked "to be confirmed" by the user (the stall rule and part 8). Wrong-side assertions were not changed.
+
+Known gaps:
+- The campaign passed in groups and with one retry, not in one uninterrupted run; a quiet host or more free RAM would show how often the remaining failure (sensors and gate silent at the same moment while the controller keeps ticking, possibly one of the 2 vCPUs held by the host) happens.
+- An island that is blind 190 ms out of every 200 ms is never FAILED (no ticket); left for `lg-health` in Step 11.
+- Stuck rules assume a single fault; a restarted controller starts with empty latches, tickets and event ring (Decisions log).
 
 ## Known gaps
 
