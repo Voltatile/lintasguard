@@ -151,6 +151,16 @@ fresh() { # fresh <scenario file name>
     return 0
 }
 gate_up_dark() { [ "$(gfield state)" = "UP" ] && [ "$(gfield lights)" = "0" ]; }
+level_is_2_or_4() { # within 5 s, the level is 2 or 4
+    i=0
+    while [ $i -lt 50 ]; do
+        l=$(cfield level)
+        [ "$l" = "2" ] || [ "$l" = "4" ] && return 0
+        sleep 0.1
+        i=$((i + 1))
+    done
+    return 1
+}
 gate_down_lit() { [ "$(gfield state)" = "DOWN" ] && [ "$(gfield lights)" = "1" ]; }
 no_dead() { ! grep -q 'state=DEAD' /dev/lg/supervisor; }
 # The transitions of the level, in order, of controller pid $1 (for example "4>0 0>2 2>0 ")
@@ -367,10 +377,23 @@ PT3=$(plant_ms)
 T3=$(now_s)
 echo "--- plant time before the kill: $PT1 ms, 3 s after the restart: $PT3 ms, wall seconds between: $((T3 - T0))"
 check "the scenario was continued, not replayed from 0 (plant time kept up with the wall clock)" at_least "$PT3" "$((PT1 + (T3 - T0 - 2) * 1000))"
-check "blind sensors (no truth while the plant was away): level 4" wait_eq cfield level 4 50
-check "the gate is DOWN with the lights on" wait_eq gfield state DOWN 100
-sleep 5
-check "guard G01 acknowledges and level 0 follows after T_stable (re-acknowledgement allowed)" ack_until_level0
+# Since Step 9 (Decisions log) a blind sensor is FAILED only after 200 ms of blindness. The supervisor
+# restarts the plant within milliseconds, so the usual outcome is level 2 (plant RESTARTING) and level 0
+# after T_stable without a guard. On a slow VM the sensors may stay blind for 200 ms or more: then the
+# island is FAILED, level 4, and a guard is needed (the Step 8 rule). Both paths are checked.
+check "the plant restart is level 2 or level 4 (never 0, 1 or 3)" level_is_2_or_4
+P8_LEVEL=$(cfield level)
+echo "--- level 3 s after the plant restart: $P8_LEVEL (2: sensors blind less than 200 ms, 4: 200 ms or more)"
+if [ "$P8_LEVEL" = "4" ]; then
+    check "level 4: the gate is DOWN with the lights on" wait_eq gfield state DOWN 100
+    sleep 5
+    check "guard G01 acknowledges and level 0 follows after T_stable (re-acknowledgement allowed)" ack_until_level0
+else
+    ACKS8=$(cfield guard_acks)
+    check "level 2: the gate stays UP with the lights off" gate_up_dark
+    check "level 2: back to level 0 after T_stable without a guard" wait_eq cfield level 0 400
+    check "no guard acknowledgement was needed" [ "$(cfield guard_acks)" = "$ACKS8" ]
+fi
 
 echo "=== part 9: the supervisor is killed (the children keep running)"
 check "fresh system" fresh test_idle.json

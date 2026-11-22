@@ -64,6 +64,10 @@ typedef struct {
 
 /* 0 = ideal delivery; otherwise every island sample at a multiple of this period arrives stale. */
 static uint32_t g_stale_period_ms;
+/* 0 = no pause; otherwise the whole system (sensors, controller, gate) pauses for the last
+ * g_pause_len_ms of every g_pause_period_ms, like a stalled VM; the plant time runs on. */
+static uint32_t g_pause_period_ms;
+static uint32_t g_pause_len_ms;
 
 static void run_case(const fcase_t *fc, uint32_t seed, fres_t *r) {
     lg_ctl_cfg_t cfg = lg_ctl_cfg_default();
@@ -87,10 +91,11 @@ static void run_case(const fcase_t *fc, uint32_t seed, fres_t *r) {
     lg_metrics_init(&r->metrics, 0);
 
     for (t = 10; t <= END_MS; t += LG_TICK_MS) {
-        lg_ctl_out_t out;
+        lg_ctl_out_t out = {0};
         lg_truth_t island_truth;
         uint8_t prev_level = r->ctl.mode.level;
         int silent = 0;
+        int paused = g_pause_period_ms != 0 && (t % g_pause_period_ms) >= g_pause_period_ms - g_pause_len_ms;
 
         if (fc->fault != LG_SFAULT_NONE) {
             lg_sensor_model_t *m = &sm[fc->dir][fc->id];
@@ -111,7 +116,7 @@ static void run_case(const fcase_t *fc, uint32_t seed, fres_t *r) {
                 lg_truth_t tr = lg_plant_truth(&plant, t, (uint8_t)d, (uint8_t)i);
                 lg_sensor_out_t so;
 
-                if (silent && d == fc->dir && i == fc->id) {
+                if (paused || (silent && d == fc->dir && i == fc->id)) {
                     continue;
                 }
                 if (lg_sensor_model_step(&sm[d][i], t, tr.occupied, tr.axles, &so)) {
@@ -126,13 +131,16 @@ static void run_case(const fcase_t *fc, uint32_t seed, fres_t *r) {
                 }
             }
         }
-        out = lg_ctl_step(&r->ctl, t);
-        (void)lg_gate_model_command(
-            &gate, out.gate_target == LG_GATE_TARGET_UP ? LG_GATE_CMD_RAISE : LG_GATE_CMD_LOWER, t);
-        (void)lg_gate_model_command(&gate, out.lights ? LG_GATE_CMD_LIGHTS_ON : LG_GATE_CMD_LIGHTS_OFF, t);
-        (void)lg_gate_model_command(&gate, out.bell ? LG_GATE_CMD_BELL_ON : LG_GATE_CMD_BELL_OFF, t);
-        lg_gate_model_step(&gate, t);
-        (void)lg_ctl_on_gate_reply(&r->ctl, gate.state, t);
+        if (!paused) { /* a paused system: no step, no command, no reply (the gate is frozen too) */
+            out = lg_ctl_step(&r->ctl, t);
+            (void)lg_gate_model_command(
+                &gate, out.gate_target == LG_GATE_TARGET_UP ? LG_GATE_CMD_RAISE : LG_GATE_CMD_LOWER, t);
+            (void)lg_gate_model_command(&gate, out.lights ? LG_GATE_CMD_LIGHTS_ON : LG_GATE_CMD_LIGHTS_OFF,
+                                        t);
+            (void)lg_gate_model_command(&gate, out.bell ? LG_GATE_CMD_BELL_ON : LG_GATE_CMD_BELL_OFF, t);
+            lg_gate_model_step(&gate, t);
+            (void)lg_ctl_on_gate_reply(&r->ctl, gate.state, t);
+        }
 
         island_truth = lg_plant_truth(&plant, t, LG_DIR_WEST, LG_SENSOR_ISLAND);
         lg_metrics_tick(&r->metrics, t, gate.state, gate.lights, island_truth.island_any, 0);
@@ -284,6 +292,35 @@ static void test_stale_island_ticks(void) {
     g_stale_period_ms = 0;
 }
 
+/*
+ * Step 9 campaign: whole-VM stalls of 100 to 300 ms locked level 4 (sensors looked silent or stale,
+ * the gate looked silent). With the controller's stall rule a paused system is not a failed one:
+ * no tickets, level 0 at the end, every train protected (the same wrong-side check as everywhere).
+ */
+static void test_whole_system_pauses(void) {
+    static const fcase_t base = {"baseline, whole system pauses", 0, 0, LG_SFAULT_NONE, 0, 0, LG_CTL_DIAG_NONE};
+    static const uint32_t lens[] = {100, 250, 400};
+    fres_t r;
+    size_t k;
+
+    for (k = 0; k < sizeof lens / sizeof lens[0]; k++) {
+        g_pause_period_ms = 7730;
+        g_pause_len_ms = lens[k];
+        run_case(&base, SEED, &r);
+        printf("pause %u ms every 7730 ms: trains=%u cycles=%u tickets=%u stalls=%u max_level_after_boot=%u "
+               "wrong_side=%u\n",
+               (unsigned)lens[k], (unsigned)r.metrics.trains, (unsigned)r.ctl.cycles, (unsigned)r.ctl.tickets,
+               (unsigned)r.ctl.stalls, (unsigned)r.max_level_after_boot, (unsigned)r.metrics.wrong_side_events);
+        check_protected(&r);
+        CHECK(r.ctl.tickets == 0);
+        CHECK(r.ctl.stalls > 30);
+        CHECK(r.max_level_after_boot == LG_LEVEL_NORMAL);
+        CHECK(r.ctl.cycles == g_sc.n_trains);
+    }
+    g_pause_period_ms = 0;
+    g_pause_len_ms = 0;
+}
+
 int main(void) {
     if (load("config/crossing.json", "scenarios/sensor_faults.json") != 0) {
         puts("FAIL: could not load config/crossing.json or scenarios/sensor_faults.json (run from the repo root)");
@@ -292,5 +329,6 @@ int main(void) {
     test_baseline_no_false_tickets();
     test_fault_cases();
     test_stale_island_ticks();
+    test_whole_system_pauses();
     LG_TEST_DONE("replay_sensor_faults");
 }

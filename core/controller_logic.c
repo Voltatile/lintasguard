@@ -18,6 +18,7 @@ lg_ctl_cfg_t lg_ctl_cfg_default(void) {
     c.sup_silence_ms = LG_CTL_SUP_SILENCE_MS;
     c.max_occupied_ms = LG_SENSOR_MAX_OCCUPIED_MS;
     c.t_disagree_ms = LG_T_DISAGREE_MS;
+    c.stall_ms = LG_CTL_STALL_MS;
     c.restarted = 0;
     return c;
 }
@@ -371,6 +372,47 @@ static void sensor_tickets(lg_ctl_t *c, const lg_vsensor_t vs[LG_DIR_COUNT][LG_S
     }
 }
 
+/*
+ * The controller itself stalled (a step came stall_ms or more after the previous one, typically the
+ * whole VM paused): little was received in that time because nothing ran, not because the peers went
+ * quiet. The silence clocks of the sensors, the gate and the supervisor move forward by gap_ms = the
+ * delay minus stall_ms, so a late step counts as exactly stall_ms of silence: the silence before the
+ * stall still counts, a peer that stays quiet after it is still FAILED, and a controller that is late
+ * on EVERY step (persistent overload) still adds stall_ms of silence per step, so a dead peer is found
+ * after a few steps (found by test_dead_sensor_stays_dead_across_wrap, which steps every second). The
+ * sample timestamps are not moved: an old sample is still stale and unusable (Step 9 campaign; the
+ * supervisor has a stall rule since Step 8).
+ */
+static void stall_shift(lg_ctl_t *c, uint32_t gap_ms) {
+    int d;
+    int i;
+
+    c->stalls++;
+    for (d = 0; d < LG_DIR_COUNT; d++) {
+        for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
+            lg_ctl_sensor_t *s = &c->sensor[d][i];
+
+            if (s->seen) {
+                s->rx_ms += gap_ms;
+            }
+            if (s->stale_tracking) {
+                s->stale_since_ms += gap_ms;
+            }
+            if (s->blind_tracking) {
+                s->blind_since_ms += gap_ms;
+            }
+        }
+    }
+    if (c->gate_seen) {
+        c->gate_rx_ms += gap_ms;
+    } else {
+        c->first_step_ms += gap_ms; /* the boot grace of a gate never heard */
+    }
+    if (c->sup_armed) {
+        c->sup_rx_ms += gap_ms;
+    }
+}
+
 static lg_vsensor_t to_vsensor(const lg_ctl_sensor_t *s, uint8_t verdict, uint32_t now_ms) {
     lg_vsensor_t v;
 
@@ -407,7 +449,11 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
     if (!c->started) {
         c->started = 1;
         c->first_step_ms = now_ms; /* the process is set up by now: the gate clocks start here */
+    } else if (lg_elapsed_ge(now_ms, c->last_step_ms, c->cfg.stall_ms)) {
+        /* A late step counts as exactly stall_ms of silence: see stall_shift. */
+        stall_shift(c, (now_ms - c->last_step_ms) - c->cfg.stall_ms);
     }
+    c->last_step_ms = now_ms;
     c->ticks++;
 
     /*
@@ -700,7 +746,7 @@ size_t lg_ctl_text(const lg_ctl_t *c, char *buf, size_t len) {
                  "activations=%u cycles=%u ticks=%u late_ticks=%u samples=%u rejected=%u "
                  "gate_replies=%u gate_timeouts=%u sup_armed=%u sup_silent=%u proc_status_rx=%u "
                  "proc_status_rejected=%u proc_bad=0x%x guard_acks=%u tickets=%u sensor_failed=0x%x "
-                 "events=%u unmet=0x%x,0x%x\n",
+                 "events=%u unmet=0x%x,0x%x stalls=%u\n",
                  (unsigned)c->mode.level, (unsigned)c->mode.boot_lock,
                  lg_gate_state_name(c->gate_state), (unsigned)c->gate_silent,
                  c->last_gate_target == LG_GATE_TARGET_UP ? "UP" : "DOWN", (unsigned)c->last_lights,
@@ -710,7 +756,8 @@ size_t lg_ctl_text(const lg_ctl_t *c, char *buf, size_t len) {
                  (unsigned)c->gate_replies, (unsigned)c->gate_timeouts, (unsigned)c->sup_armed,
                  (unsigned)c->sup_silent, (unsigned)c->proc_status_rx, (unsigned)c->proc_status_rejected,
                  proc_bad, (unsigned)c->guard_acks, (unsigned)c->tickets, sensor_failed,
-                 (unsigned)c->events, (unsigned)c->last_unmet[0], (unsigned)c->last_unmet[1]);
+                 (unsigned)c->events, (unsigned)c->last_unmet[0], (unsigned)c->last_unmet[1],
+                 (unsigned)c->stalls);
     if (n < 0) {
         buf[0] = '\0';
         return 0;

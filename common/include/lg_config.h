@@ -19,6 +19,7 @@
 #define LG_SUP_START_GRACE_MS 1500      /* initial: a new process may take this long to send its first beat */
 #define LG_SUP_STATUS_REFRESH_MS 1000   /* initial: the supervisor repeats the whole table this often */
 #define LG_CTL_SUP_SILENCE_MS 3500      /* initial: supervisor silent this long after it was heard = DEAD */
+#define LG_CTL_STALL_MS 50              /* initial: a controller step this late means the controller itself stalled */
 #define LG_GATE_WATCHDOG_MS 100
 #define LG_CTL_IPC_TIMEOUT_MS 5        /* initial: bound for one MsgSend from the controller to the gate */
 #define LG_CTL_CONNECTOR_PERIOD_MS 200 /* initial: how often the connector thread looks for the gate */

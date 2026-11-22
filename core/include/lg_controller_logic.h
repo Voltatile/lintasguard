@@ -103,6 +103,7 @@ typedef struct {
     uint32_t sup_silence_ms;     /* supervisor heard once, then silent this long: DEAD */
     uint32_t max_occupied_ms;    /* stuck rules: longest plausible occupied run of an approach sensor */
     uint32_t t_disagree_ms;      /* stuck rules: A/B edges this far apart still agree */
+    uint32_t stall_ms;           /* a step this late after the previous one: the controller stalled */
     uint8_t restarted;           /* started by the supervisor after an earlier controller: no boot release */
 } lg_ctl_cfg_t;
 
@@ -186,6 +187,8 @@ typedef struct {
     uint8_t ever_ok[LG_DIR_COUNT][LG_SENSOR_ID_COUNT];      /* was OK once: a FAILED is then a ticket */
     uint8_t ticket_open[LG_DIR_COUNT][LG_SENSOR_ID_COUNT];  /* a ticket was raised, not yet resolved */
     uint8_t ticket_code[LG_DIR_COUNT][LG_SENSOR_ID_COUNT];  /* lg_ctl_diag_t of the open ticket */
+    uint32_t last_step_ms; /* time of the previous step (stall rule) */
+    uint32_t stalls;       /* steps that came stall_ms or more after the previous one */
     uint32_t tickets; /* URGENT maintenance tickets raised */
     uint32_t events;  /* events raised (= seq of the newest) */
     lg_ctl_event_t ev[LG_CTL_EVENT_RING];
