@@ -15,7 +15,7 @@ HDRS     := $(wildcard common/include/*.h core/include/*.h target/include/*.h te
 TARGET_INC  := $(CORE_INC) -Itarget/include
 # Strict -std=c11 hides the POSIX/QNX declarations in the SDP headers; _QNX_SOURCE brings them back.
 QNX_DEFS    := -D_QNX_SOURCE
-TARGET_BINS := $(addprefix $(BUILD)/target/,lg-stub lg-gate lg-gate-test lg-prio-demo lg-plant lg-sensor lgctl lg-sample-sink lg-jitter lg-chan-demo lg-controller lg-meter lg-supervisor)
+TARGET_BINS := $(addprefix $(BUILD)/target/,lg-stub lg-gate lg-gate-test lg-prio-demo lg-plant lg-sensor lgctl lg-sample-sink lg-jitter lg-chan-demo lg-controller lg-meter lg-supervisor lg-bridge)
 
 .PHONY: host test lint target image deploy evidence clean
 
@@ -29,8 +29,14 @@ $(BUILD)/host/%: tests/scenario/%.c $(CORE_SRC) $(HDRS)
 	@mkdir -p $(BUILD)/host
 	$(CC_HOST) $(CFLAGS) $(CORE_INC) $(filter %.c,$^) -o $@
 
+# C unit tests and replays, the static no-gate check of lg-bridge, and the host Python tests (when Python is present).
 test: host
-	@rc=0; for t in $(UNIT_BIN); do ./$$t || rc=1; done; exit $$rc
+	@rc=0; for t in $(UNIT_BIN); do ./$$t || rc=1; done; \
+	sh tests/static/check_bridge_no_gate.sh || rc=1; \
+	if command -v python >/dev/null 2>&1 && [ -d tests/host ]; then \
+	  if python -m unittest discover -s tests/host -p 'test_*.py' -q >build/host/pytest.log 2>&1; \
+	  then echo "PASS: host python tests"; else cat build/host/pytest.log; echo "FAIL: host python tests"; rc=1; fi; \
+	fi; exit $$rc
 
 lint:
 	@command -v clang-format >/dev/null 2>&1 && \
@@ -82,6 +88,9 @@ $(BUILD)/target/lg-controller: $(wildcard target/lg-controller/*.c) core/control
 
 $(BUILD)/target/lg-supervisor: $(wildcard target/lg-supervisor/*.c) core/supervisor_logic.c $(HDRS)
 	$(call qcc_build,-lslog2)
+
+$(BUILD)/target/lg-bridge: $(wildcard target/lg-bridge/*.c) core/bridge_proto.c core/json_mini.c core/metrics.c core/gate_model.c $(HDRS)
+	$(call qcc_build,-lslog2 -lsocket)
 
 $(BUILD)/target/lg-meter: $(wildcard target/tools/lg-meter/*.c) core/metrics.c core/gate_model.c $(HDRS)
 	$(call qcc_build,)
