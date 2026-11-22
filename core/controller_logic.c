@@ -64,8 +64,8 @@ int lg_ctl_on_sample(lg_ctl_t *c, uint8_t dir, uint8_t id, uint8_t occupied, uin
     s->sample_ms = sample_ms;
     s->rx_ms = now_ms;
     s->silent = 0;
-    if (!lg_elapsed_ge(now_ms, sample_ms, LG_SAMPLE_MAX_AGE_MS + 1u)) {
-        s->stale_failed = 0; /* only a fresh sample clears a stale failure */
+    if (!lg_elapsed_ge(now_ms, sample_ms, LG_SAMPLE_MAX_AGE_MS + 1u) && quality >= LG_SENSOR_QUALITY_USABLE_MIN) {
+        s->unusable_failed = 0; /* only a usable (fresh, not blind) sample clears the failure */
     }
     c->samples++;
     return 0;
@@ -127,41 +127,35 @@ static uint8_t sensor_fresh(const lg_ctl_sensor_t *s, uint32_t now_ms) {
 }
 
 static uint8_t sensor_verdict(const lg_ctl_t *c, lg_ctl_sensor_t *s, uint32_t now_ms) {
-    /* Time spent without a fresh sample: one stalled tick is short, a long IPC delay is not. */
-    if (sensor_fresh(s, now_ms)) {
-        s->stale_tracking = 0;
-    } else if (!s->stale_tracking) {
-        s->stale_tracking = 1;
-        s->stale_since_ms = now_ms;
+    /*
+     * Time spent without a usable sample (stale, or blind with quality 0; Step 9: one clock for both,
+     * so a sensor that alternates stale and blind is FAILED too). One stalled or blind tick is short,
+     * a long IPC delay or a lost plant link is not.
+     */
+    if (sensor_fresh(s, now_ms) && s->quality >= LG_SENSOR_QUALITY_USABLE_MIN) {
+        s->unusable_tracking = 0;
+    } else if (!s->unusable_tracking) {
+        s->unusable_tracking = 1;
+        s->unusable_since_ms = now_ms;
     }
     /*
-     * The two failures are LATCHED when first seen and cleared only by a new sample: the 32-bit
-     * millisecond arithmetic reads a timestamp older than 2^31 ms (24 days) as "in the future", and a
-     * sensor that has been dead that long must not look alive again.
+     * The two failures are LATCHED when first seen and cleared only by a new (usable) sample: the
+     * 32-bit millisecond arithmetic reads a timestamp older than 2^31 ms (24 days) as "in the future",
+     * and a sensor that has been dead or blind that long must not look alive again.
      */
     if (s->seen && lg_elapsed_ge(now_ms, s->rx_ms, c->cfg.sensor_silence_ms)) {
         s->silent = 1;
     }
-    if (s->stale_tracking && lg_elapsed_ge(now_ms, s->stale_since_ms, c->cfg.sensor_silence_ms)) {
-        s->stale_failed = 1;
-    }
-    /* Blindness (quality 0) is timed like staleness (Step 9, decided with the user). */
-    if (s->seen && s->quality < LG_SENSOR_QUALITY_USABLE_MIN) {
-        if (!s->blind_tracking) {
-            s->blind_tracking = 1;
-            s->blind_since_ms = now_ms;
-        }
-    } else {
-        s->blind_tracking = 0;
+    if (s->unusable_tracking && lg_elapsed_ge(now_ms, s->unusable_since_ms, c->cfg.sensor_silence_ms)) {
+        s->unusable_failed = 1;
     }
     /*
-     * FAILED when nothing was ever received, nothing for sensor_silence_ms, or its samples have been
-     * stale or blind for sensor_silence_ms in a row (they arrive, but are never usable). A single
-     * stale or blind tick only makes the sensor unusable for that tick (lg_vsensor_usable needs a
-     * fresh sample with quality >= 1), so a blind sensor never counts as a clear track.
+     * FAILED when nothing was ever received, nothing for sensor_silence_ms, or no usable sample for
+     * sensor_silence_ms in a row (samples arrive, but stale or blind). A single stale or blind tick
+     * only makes the sensor unusable for that tick (lg_vsensor_usable needs a fresh sample with
+     * quality >= 1), so a blind sensor never counts as a clear track.
      */
-    if (!s->seen || s->silent || s->stale_failed ||
-        (s->blind_tracking && lg_elapsed_ge(now_ms, s->blind_since_ms, c->cfg.sensor_silence_ms))) {
+    if (!s->seen || s->silent || s->unusable_failed) {
         return LG_VERDICT_FAILED;
     }
     return LG_VERDICT_OK;
@@ -315,11 +309,8 @@ static uint8_t sensor_cause(const lg_ctl_sensor_t *s, uint8_t id) {
     if (!s->seen || s->silent) {
         return LG_CTL_DIAG_SILENT;
     }
-    if (s->stale_failed) {
-        return LG_CTL_DIAG_STALE;
-    }
-    if (s->quality < LG_SENSOR_QUALITY_USABLE_MIN) {
-        return LG_CTL_DIAG_BLIND;
+    if (s->unusable_failed) {
+        return s->quality < LG_SENSOR_QUALITY_USABLE_MIN ? (uint8_t)LG_CTL_DIAG_BLIND : (uint8_t)LG_CTL_DIAG_STALE;
     }
     return id != LG_SENSOR_ISLAND ? s->stuck : (uint8_t)LG_CTL_DIAG_NONE;
 }
@@ -375,15 +366,27 @@ static void sensor_tickets(lg_ctl_t *c, const lg_vsensor_t vs[LG_DIR_COUNT][LG_S
 /*
  * The controller itself stalled (a step came stall_ms or more after the previous one, typically the
  * whole VM paused): little was received in that time because nothing ran, not because the peers went
- * quiet. The silence clocks of the sensors, the gate and the supervisor move forward by gap_ms = the
- * delay minus stall_ms, so a late step counts as exactly stall_ms of silence: the silence before the
- * stall still counts, a peer that stays quiet after it is still FAILED, and a controller that is late
- * on EVERY step (persistent overload) still adds stall_ms of silence per step, so a dead peer is found
- * after a few steps (found by test_dead_sensor_stays_dead_across_wrap, which steps every second). The
- * sample timestamps are not moved: an old sample is still stale and unusable (Step 9 campaign; the
- * supervisor has a stall rule since Step 8).
+ * quiet, and nothing was observed either. Every clock that measures "how long since" moves forward by
+ * gap_ms = the delay minus stall_ms, so the stall counts as exactly stall_ms:
+ *  - silence clocks (sensor receive time and unusable start, gate reply, supervisor status): a peer
+ *    that stays quiet after the stall is still FAILED, silence before the stall still counts, and a
+ *    controller that is late on EVERY step still adds stall_ms of silence per step;
+ *  - "healthy/clear for so long" clocks (the mode manager's stability and boot-release timer, the
+ *    island clear window, the gate-down time, the last approach): a stall must not count as observed
+ *    health. Without this, level 4 was left and the gate commanded UP at the first step after a long
+ *    stall, before any new input (found by the reviewer, Step 9; test_stall_is_not_stable_time).
+ * Only clocks at or before the previous step are moved: a reply or sample that arrived after the
+ * resume (handled before this step) is fresh and must not be pushed into the future. Sample
+ * timestamps are never moved: an old sample stays stale and unusable.
  */
+static void shift_old(uint32_t *x, uint32_t last_step_ms, uint32_t gap_ms) {
+    if (!lg_elapsed_ge(*x, last_step_ms, 1u)) { /* *x <= last_step_ms (32-bit wrap safe) */
+        *x += gap_ms;
+    }
+}
+
 static void stall_shift(lg_ctl_t *c, uint32_t gap_ms) {
+    uint32_t last = c->last_step_ms;
     int d;
     int i;
 
@@ -393,23 +396,30 @@ static void stall_shift(lg_ctl_t *c, uint32_t gap_ms) {
             lg_ctl_sensor_t *s = &c->sensor[d][i];
 
             if (s->seen) {
-                s->rx_ms += gap_ms;
+                shift_old(&s->rx_ms, last, gap_ms);
             }
-            if (s->stale_tracking) {
-                s->stale_since_ms += gap_ms;
-            }
-            if (s->blind_tracking) {
-                s->blind_since_ms += gap_ms;
+            if (s->unusable_tracking) {
+                shift_old(&s->unusable_since_ms, last, gap_ms);
             }
         }
+        if (c->clear[d].island_clear_tracking) {
+            shift_old(&c->clear[d].island_clear_since_ms, last, gap_ms);
+        }
+        shift_old(&c->last_approach_ms[d], last, gap_ms);
     }
     if (c->gate_seen) {
-        c->gate_rx_ms += gap_ms;
+        shift_old(&c->gate_rx_ms, last, gap_ms);
     } else {
-        c->first_step_ms += gap_ms; /* the boot grace of a gate never heard */
+        shift_old(&c->first_step_ms, last, gap_ms); /* the boot grace of a gate never heard */
+    }
+    if (c->gate_down_tracking) {
+        shift_old(&c->gate_down_since_ms, last, gap_ms);
     }
     if (c->sup_armed) {
-        c->sup_rx_ms += gap_ms;
+        shift_old(&c->sup_rx_ms, last, gap_ms);
+    }
+    if (c->mode.timing) {
+        shift_old(&c->mode.since_ms, last, gap_ms);
     }
 }
 

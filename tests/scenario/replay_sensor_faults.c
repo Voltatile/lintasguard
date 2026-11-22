@@ -293,7 +293,7 @@ static void test_stale_island_ticks(void) {
 }
 
 /*
- * Step 9 campaign: whole-VM stalls of 100 to 300 ms locked level 4 (sensors looked silent or stale,
+ * Step 9 campaign: whole-VM stalls of 100 to 200 ms locked level 4 (sensors looked silent or stale,
  * the gate looked silent). With the controller's stall rule a paused system is not a failed one:
  * no tickets, level 0 at the end, every train protected (the same wrong-side check as everywhere).
  */

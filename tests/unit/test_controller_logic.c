@@ -343,12 +343,20 @@ static void test_dead_sensor_stays_dead_across_wrap(void) {
         o = lg_ctl_step(&c, t);
     }
     CHECK(o.level == LG_LEVEL_NORMAL);
+    /*
+     * 40 ms steps: below the stall rule's 50 ms (Step 9), so every step counts in full and the silence
+     * really grows past 2^31 ms (with 1 s steps each step counted only 50 ms and the test no longer
+     * reached the wrap; found by the reviewer). East/b is blind (quality 0) for the whole time: the
+     * blind failure is latched as well.
+     */
     end = 10000u + 2147483648u + 60000u;
-    for (t = 10000; t != end; t += 1000) { /* west/a is silent from here on, 1 s steps */
+    for (t = 10000; t != end; t += 40) { /* west/a is silent from here on */
         for (d = 0; d < LG_DIR_COUNT; d++) {
             for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
                 if (!(d == LG_DIR_WEST && i == LG_SENSOR_A)) {
-                    CHECK(lg_ctl_on_sample(&c, (uint8_t)d, (uint8_t)i, 0, 97, 0, t, t) == 0);
+                    uint8_t q = (d == LG_DIR_EAST && i == LG_SENSOR_B) ? 0 : 97;
+
+                    (void)lg_ctl_on_sample(&c, (uint8_t)d, (uint8_t)i, 0, q, 0, t, t);
                 }
             }
         }
@@ -356,6 +364,9 @@ static void test_dead_sensor_stays_dead_across_wrap(void) {
         o = lg_ctl_step(&c, t);
     }
     CHECK(o.level >= LG_LEVEL_DEGRADED);
+    CHECK(c.last_verdict[LG_DIR_WEST][LG_SENSOR_A] == LG_VERDICT_FAILED);
+    CHECK(c.last_verdict[LG_DIR_EAST][LG_SENSOR_B] == LG_VERDICT_FAILED);
+    CHECK(c.stalls == 0);
 }
 
 static void test_rejects_bad_input(void) {

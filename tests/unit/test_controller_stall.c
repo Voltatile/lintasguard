@@ -222,6 +222,192 @@ static void test_stall_keeps_the_supervisor_alive(void) {
     CHECK(g_last.level == LG_LEVEL_NORMAL);
 }
 
+/*
+ * Review finding (Step 9): the stall must not count as observed health. Level 4 (gate silent), a guard
+ * acknowledges, 1 s healthy, then a 29.5 s stall: the first step after it, before any new input,
+ * left level 4 and commanded the gate UP. T_stable must be 30 s of running controller.
+ */
+static void test_stall_is_not_stable_time(void) {
+    lg_ctl_t c;
+    uint32_t t;
+    uint32_t resume;
+
+    released(&c, &t, 0);
+    g_gate_mute = 1;
+    run(&c, &t, 300);
+    CHECK(g_last.level == LG_LEVEL_FAILSAFE);
+    g_gate_mute = 0;
+    run(&c, &t, 500);
+    lg_ctl_on_guard_ack(&c);
+    run(&c, &t, 1000);
+    CHECK(g_last.level == LG_LEVEL_FAILSAFE);
+    pause_all(&t, 29500);
+    resume = t;
+    g_gate_mute = 1; /* the first step runs before anything arrives */
+    memset(g_mute, 1, sizeof g_mute);
+    tick(&c, t);
+    t += 10;
+    CHECK(g_last.level == LG_LEVEL_FAILSAFE);
+    CHECK(g_last.gate_target == LG_GATE_TARGET_DOWN);
+    g_gate_mute = 0;
+    memset(g_mute, 0, sizeof g_mute);
+    run(&c, &t, 20000);
+    CHECK(g_last.level == LG_LEVEL_FAILSAFE); /* about 21 s of observed health, not 30 */
+    run(&c, &t, 10000);
+    CHECK(g_last.level == LG_LEVEL_NORMAL);
+    CHECK(t - resume >= 28000);
+}
+
+/*
+ * Review finding: a reply or sample that arrives after the resume but before the first step must not
+ * be pushed into the future. Everyone answers once, then the gate and west/a die: both are found
+ * within their normal limits after that answer (100 ms gate, 200 ms sensor), not a gap later.
+ */
+static void test_answers_at_the_resume_are_not_moved(void) {
+    lg_ctl_t c;
+    uint32_t t;
+    uint32_t resume;
+
+    released(&c, &t, 0);
+    pause_all(&t, 1000);
+    resume = t;
+    tick(&c, t); /* samples and the gate reply arrive first, then the step */
+    t += 10;
+    g_gate_mute = 1;
+    g_mute[W][A] = 1;
+    while (g_last.level != LG_LEVEL_FAILSAFE && t - resume < 2000) {
+        tick(&c, t);
+        t += 10;
+    }
+    CHECK(g_last.level == LG_LEVEL_FAILSAFE);
+    CHECK(t - resume <= 130);
+    g_gate_mute = 0;
+    run(&c, &t, 300);
+    CHECK(c.last_verdict[W][A] == LG_VERDICT_FAILED);
+}
+
+/* An old sample stays stale after a stall: its timestamp is never moved (mutant M1 of the review). */
+static void test_old_sample_stays_unusable(void) {
+    lg_ctl_t c;
+    uint32_t t;
+    uint32_t act;
+
+    released(&c, &t, 0);
+    act = c.activations;
+    /* West A reports occupied just before the stall; the controller never stepped on it. */
+    CHECK(lg_ctl_on_sample(&c, W, A, 1, 97, 0, t - 5, t - 5) == 0);
+    pause_all(&t, 300);
+    memset(g_mute, 1, sizeof g_mute); /* nothing new arrives on the first step */
+    g_gate_mute = 1;
+    g_last = lg_ctl_step(&c, t);
+    CHECK(c.activations == act); /* a 300 ms old sample is not an approaching train */
+    memset(g_mute, 0, sizeof g_mute);
+    g_gate_mute = 0;
+}
+
+/* The boot grace of a gate never heard is not used up by a stall (mutant M2). */
+static void test_stall_in_the_gate_boot_grace(void) {
+    lg_ctl_t c;
+    lg_ctl_cfg_t cfg = lg_ctl_cfg_default();
+    uint32_t t = 0;
+
+    memset(g_mute, 0, sizeof g_mute);
+    g_gate_mute = 1;
+    lg_ctl_init(&c, &cfg, t);
+    run(&c, &t, 1000);
+    pause_all(&t, 1500);
+    tick(&c, t);
+    t += 10;
+    CHECK(c.gate_silent == 0); /* 1000 + 50 + 10 ms of the 2000 ms grace */
+    run(&c, &t, cfg.gate_boot_grace_ms);
+    CHECK(c.gate_silent == 1); /* a gate that never answers is still found */
+    g_gate_mute = 0;
+}
+
+/* Unusable time before a stall still counts (mutant M3): blind 100 ms, stall, FAILED 50 ms after. */
+static void test_blind_time_before_the_stall_counts(void) {
+    lg_ctl_t c;
+    uint32_t t;
+    uint32_t resume;
+
+    released(&c, &t, 0);
+    {
+        uint32_t end = t + 100;
+
+        for (; t != end; t += 10) {
+            int d;
+            int i;
+
+            for (d = 0; d < LG_DIR_COUNT; d++) {
+                for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
+                    uint8_t q = (d == E && i == A) ? 0 : 97;
+                    CHECK(lg_ctl_on_sample(&c, (uint8_t)d, (uint8_t)i, 0, q, 0, t, t) == 0);
+                }
+            }
+            CHECK(lg_ctl_on_gate_reply(&c, g_gate, t) == 0);
+            g_last = lg_ctl_step(&c, t);
+        }
+    }
+    pause_all(&t, 300);
+    resume = t;
+    while (c.last_verdict[E][A] != LG_VERDICT_FAILED && t - resume < 1000) {
+        int d;
+        int i;
+
+        for (d = 0; d < LG_DIR_COUNT; d++) {
+            for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
+                uint8_t q = (d == E && i == A) ? 0 : 97;
+                CHECK(lg_ctl_on_sample(&c, (uint8_t)d, (uint8_t)i, 0, q, 0, t, t) == 0);
+            }
+        }
+        CHECK(lg_ctl_on_gate_reply(&c, g_gate, t) == 0);
+        g_last = lg_ctl_step(&c, t);
+        t += 10;
+    }
+    CHECK(c.last_verdict[E][A] == LG_VERDICT_FAILED);
+    CHECK(t - resume >= 40 && t - resume <= 70); /* 100 + 50 + about 50 */
+}
+
+/*
+ * Review finding: a sensor that alternates stale and blind samples has no usable sample at all and
+ * must be FAILED after sensor_silence_ms; two clocks that reset each other kept it OK for good.
+ */
+static void test_stale_and_blind_alternating_is_failed(void) {
+    lg_ctl_t c;
+    lg_ctl_cfg_t cfg = lg_ctl_cfg_default();
+    uint32_t t;
+    uint32_t start;
+    int k = 0;
+
+    released(&c, &t, 0);
+    start = t;
+    while (t - start <= cfg.sensor_silence_ms + 20) {
+        int d;
+        int i;
+
+        for (d = 0; d < LG_DIR_COUNT; d++) {
+            for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
+                if (d == W && i == B) {
+                    /* even ticks: stale with good quality; odd ticks: fresh but blind */
+                    if ((k & 1) == 0) {
+                        CHECK(lg_ctl_on_sample(&c, W, B, 1, 97, 0, t - 30, t) == 0);
+                    } else {
+                        CHECK(lg_ctl_on_sample(&c, W, B, 1, 0, 0, t, t) == 0);
+                    }
+                } else {
+                    CHECK(lg_ctl_on_sample(&c, (uint8_t)d, (uint8_t)i, 0, 97, 0, t, t) == 0);
+                }
+            }
+        }
+        CHECK(lg_ctl_on_gate_reply(&c, g_gate, t) == 0);
+        g_last = lg_ctl_step(&c, t);
+        t += 10;
+        k++;
+    }
+    CHECK(c.last_verdict[W][B] == LG_VERDICT_FAILED);
+    CHECK(g_last.level == LG_LEVEL_DEGRADED);
+}
+
 static void test_status_shows_stalls(void) {
     lg_ctl_t c;
     uint32_t t;
@@ -248,6 +434,12 @@ int main(void) {
     test_persistent_overload_still_finds_a_dead_sensor();
     test_short_gaps_are_no_stall();
     test_stall_keeps_the_supervisor_alive();
+    test_stall_is_not_stable_time();
+    test_answers_at_the_resume_are_not_moved();
+    test_old_sample_stays_unusable();
+    test_stall_in_the_gate_boot_grace();
+    test_blind_time_before_the_stall_counts();
+    test_stale_and_blind_alternating_is_failed();
     test_status_shows_stalls();
     LG_TEST_DONE("test_controller_stall");
 }

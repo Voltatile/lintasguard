@@ -34,7 +34,8 @@
  *    sensor_silence_ms in a row make the sensor FAILED (they arrive, but are never usable).
  *  - Interim stuck rules for the approach sensors A and B of one direction (Step 9, Decisions log;
  *    both sit at the same point, so a healthy pair rises and falls together). Judged only while both
- *    sensors are alive (sampling, not silent, not stale, not blind):
+ *    sensors are alive (verdict OK and the last sample not blind; a stale sample that has not yet
+ *    made the sensor FAILED still counts as alive, with its last occupancy):
  *      MISSED_TRAIN:   the partner completed a run of t_disagree to max_occupied_ms (shorter is a
  *                      blip, longer is no train) and this sensor was not occupied once from the
  *                      partner's rise until its fall + t_disagree.
@@ -113,11 +114,11 @@ typedef struct {
     uint8_t seen;
     uint8_t occupied;
     uint8_t quality;
-    uint8_t stale_tracking; /* no fresh sample since stale_since_ms */
+    uint8_t unusable_tracking; /* no usable (fresh, not blind) sample since unusable_since_ms */
     uint16_t axles;
     uint8_t silent;       /* latched: nothing received for sensor_silence_ms, cleared by a sample */
-    uint8_t stale_failed; /* latched: stale for sensor_silence_ms in a row, cleared by a fresh sample */
-    uint32_t stale_since_ms;
+    uint8_t unusable_failed; /* latched: stale or blind for sensor_silence_ms in a row, cleared by a usable sample */
+    uint32_t unusable_since_ms;
     uint32_t sample_ms; /* timestamp the sensor put in the header */
     uint32_t rx_ms;     /* when the controller received it */
 
@@ -129,9 +130,6 @@ typedef struct {
     uint32_t rise_ms;
     uint32_t fall_ms;
 
-    /* Quality 0 since blind_since_ms: FAILED when it lasted sensor_silence_ms (like staleness). */
-    uint8_t blind_tracking;
-    uint32_t blind_since_ms;
 } lg_ctl_sensor_t;
 
 typedef struct {
