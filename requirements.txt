@@ -1,0 +1,4 @@
+# Host side (dashboard). Installed and checked with Python 3.13 on Windows, 22 Nov 2026.
+fastapi==0.165.0
+uvicorn==0.54.0
+websockets==17.4

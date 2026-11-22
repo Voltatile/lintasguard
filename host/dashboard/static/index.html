@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LintasGuard dashboard</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>LintasGuard</h1>
+  <span class="sub">level crossing controller on QNX 8.0 (prototype, simulation)</span>
+  <span id="level" class="level l4">level ?</span>
+  <span id="link" class="link down">bridge: connecting</span>
+</header>
+<main>
+  <section class="crossing">
+    <canvas id="track" width="1200" height="320"></canvas>
+    <div class="facts">
+      <div><b>Gate</b> <span id="gate">?</span></div>
+      <div><b>Lights</b> <span id="lights">?</span></div>
+      <div><b>Active</b> <span id="active">?</span></div>
+      <div><b>Plant time</b> <span id="plant">?</span></div>
+      <div><b>Tickets</b> <span id="tickets">0</span></div>
+      <div><b>Stalls</b> <span id="stalls">0</span></div>
+    </div>
+  </section>
+  <section class="side">
+    <h2>Live metrics</h2>
+    <table id="metrics">
+      <tr><td>Warning time (last train)</td><td id="m-warning">-</td></tr>
+      <tr><td>Closure per hour</td><td id="m-closure">-</td></tr>
+      <tr><td>Trains seen</td><td id="m-trains">-</td></tr>
+    </table>
+    <p class="note">Display only; the evidence numbers come from lg-meter.</p>
+    <h2>Notifications</h2>
+    <ul id="inbox"></ul>
+  </section>
+</main>
+<footer>Read-only view: nothing on this page can move the gate. Prototype, not certified signalling equipment.</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>
