@@ -81,4 +81,20 @@ lg_plant_counts_t lg_plant_counts(const lg_plant_t *p, uint32_t t_ms);
 /* One line of text for /dev/lg/plant, newline and NUL terminated. Returns the length. */
 size_t lg_plant_text(const lg_plant_t *p, uint32_t t_ms, char *buf, size_t len);
 
+/*
+ * Position of a visible train for the dashboard (Step 10), path coordinate of its side in mm.
+ * Visible from the moment the front passes the strike-in point (front > 0) until the rear has passed
+ * the strike-in point on the far side (rear >= 2 * strike_in + island).
+ */
+typedef struct {
+    uint16_t id;
+    uint8_t dir; /* lg_dir_t of the side it comes from */
+    uint8_t reserved;
+    int32_t front_mm;
+    int32_t rear_mm;
+} lg_plant_pos_t;
+
+/* Fills at most max visible trains in scenario order; returns the number filled. */
+size_t lg_plant_positions(const lg_plant_t *p, uint32_t t_ms, lg_plant_pos_t *out, size_t max);
+
 #endif

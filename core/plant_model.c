@@ -164,8 +164,12 @@ lg_plant_counts_t lg_plant_counts(const lg_plant_t *p, uint32_t t_ms) {
     return c;
 }
 
+static int train_pos(const lg_plant_t *p, const lg_train_t *t, uint32_t t_ms, lg_plant_pos_t *out);
+
 size_t lg_plant_text(const lg_plant_t *p, uint32_t t_ms, char *buf, size_t len) {
     lg_plant_counts_t c = lg_plant_counts(p, t_ms);
+    size_t used;
+    uint32_t i;
 
     if (len == 0) {
         return 0;
@@ -173,5 +177,55 @@ size_t lg_plant_text(const lg_plant_t *p, uint32_t t_ms, char *buf, size_t len) 
     (void)snprintf(buf, len, "t_ms=%u scenario=%s trains=%u waiting=%u active=%u finished=%u island=%u\n",
                    (unsigned)t_ms, p->sc.name, (unsigned)p->sc.n_trains, (unsigned)c.waiting,
                    (unsigned)c.active, (unsigned)c.finished, (unsigned)c.island_any);
-    return strlen(buf);
+    used = strlen(buf);
+    /* One line per visible train (Step 10, for lg-bridge), only when the whole line fits. */
+    for (i = 0; i < p->sc.n_trains && i < LG_SCENARIO_MAX_TRAINS; i++) {
+        lg_plant_pos_t pos;
+        char line[96];
+        int n;
+
+        if (!train_pos(p, &p->sc.trains[i], t_ms, &pos)) {
+            continue;
+        }
+        n = snprintf(line, sizeof line, "train id=%u dir=%s front_mm=%ld rear_mm=%ld\n", (unsigned)pos.id,
+                     pos.dir == LG_DIR_WEST ? "west" : "east", (long)pos.front_mm, (long)pos.rear_mm);
+        if (n < 0 || (size_t)n >= sizeof line || used + (size_t)n >= len) {
+            break;
+        }
+        memcpy(buf + used, line, (size_t)n + 1u);
+        used += (size_t)n;
+    }
+    return used;
+}
+
+/* The position of one train when it is visible (see the header); 0 when it is not. */
+static int train_pos(const lg_plant_t *p, const lg_train_t *t, uint32_t t_ms, lg_plant_pos_t *out) {
+    int64_t front = front_mm(t, t_ms);
+    int64_t rear = front - t->length_mm;
+    int64_t gone = 2 * (int64_t)p->cfg.strike_in_mm + p->cfg.island_mm;
+
+    if (front <= 0 || rear >= gone) {
+        return 0;
+    }
+    memset(out, 0, sizeof *out);
+    out->id = t->id;
+    out->dir = t->dir;
+    out->front_mm = (int32_t)front; /* visible: front < gone + length, well inside int32 */
+    out->rear_mm = (int32_t)rear;
+    return 1;
+}
+
+size_t lg_plant_positions(const lg_plant_t *p, uint32_t t_ms, lg_plant_pos_t *out, size_t max) {
+    size_t n = 0;
+    uint32_t i;
+
+    if (out == NULL) {
+        return 0;
+    }
+    for (i = 0; i < p->sc.n_trains && i < LG_SCENARIO_MAX_TRAINS && n < max; i++) {
+        if (train_pos(p, &p->sc.trains[i], t_ms, &out[n])) {
+            n++;
+        }
+    }
+    return n;
 }
