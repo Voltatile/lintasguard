@@ -364,15 +364,22 @@ Text reads make the system inspectable from the QNX shell, which is great for th
 
 ### 7.6 Host protocol (lg-bridge to dashboard)
 
-Newline-delimited JSON over TCP (port 5555 by default). Example:
+Newline-delimited JSON over TCP (port 5555 by default), one ASCII line per object. `t` is the target clock in seconds (CLOCK_MONOTONIC, 3 decimals); `plant_ms` in the state line is the scenario time. As built in Step 10 (`core/include/lg_bridge_proto.h`):
 
 ```json
-{"t": 12.340, "kind": "level", "from": 0, "to": 1, "reason": "west/a noise trend +40% in 3 d"}
-{"t": 12.350, "kind": "notify", "to": "maintenance", "severity": "warning", "text": "Sensor West-A degrading, schedule inspection"}
-{"t": 40.010, "kind": "metric", "name": "warning_time_s", "value": 31.2}
+{"t":16550.120,"kind":"state","stale":0,"ctl_ok":1,"gate_ok":1,"plant_ok":1,"level":2,"gate":"DOWN","gate_position":90,"lights":1,"bell":1,"active":[1,0],"sensor_failed":1,"tickets":1,"events":3,"stalls":0,"watchdog_trips":0,"plant_ms":105300,"island":1,"trains":[{"id":3,"dir":"west","front_mm":-2000,"rear_mm":-102000}]}
+{"t":16550.000,"seq":3,"kind":"level","from":0,"to":2,"reason":"SENSOR_FAILED"}
+{"t":16550.000,"seq":2,"kind":"notify","to":"maintenance","severity":"urgent","sensor":"west/a","diag":"MISSED_TRAIN","text":"Sensor west/a: MISSED_TRAIN, urgent maintenance"}
+{"t":16551.000,"kind":"metric","name":"warning_time_ms","value":13400}
+{"kind":"ack","what":"subscribe"}
+{"kind":"error","what":"rejected","reason":"unknown_kind"}
 ```
 
-Inbound from the host (accepted): `station_departure` messages and `subscribe` requests. **Rejected:** anything that would move the gate.
+- A state line every 100 ms. `level` is `null` when the controller could not be read, `gate` and `gate_position` are `null` when the gate could not be read (never a 0 that reads as level 0 or gate UP). `stale` is 1 when the device reader has not delivered for 1 s.
+- Level and notify lines carry the controller's `seq` and time; `reason` is a mode-manager reason code name. A client that connects later first gets the last 32 of them again (a dashboard opened after a ticket still shows it); deduplicate by `kind`, `seq` and `t`.
+- Metrics (`warning_time_ms`, `closure_ms_per_hour`, `trains`) are for display only; evidence numbers come from `lg-meter`.
+
+Inbound from the host, a strict whitelist: `{"kind":"subscribe"}` and `{"kind":"station_departure","dir":"west"|"east","eta_s":0..86400}`. Everything else (unknown kinds, extra fields, broken JSON, lines over 256 bytes) is answered with an `error` line and never acted on. **No inbound message can move the gate**: there is no such message type, and `lg-bridge` has no connection to the gate or the controller (checked by `tests/static/check_bridge_no_gate.sh` in `make test`). At most 8 clients; a client that does not read is dropped.
 
 ---
 

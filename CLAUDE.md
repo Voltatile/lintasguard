@@ -97,7 +97,9 @@ make deploy          # copy binaries to the running target over scp if not baked
 make evidence        # run target tests over ssh and collect outputs into evidence/
 
 # Host apps
-python host/dashboard/app.py        # http://localhost:8000
+pip install -r requirements.txt     # fastapi + uvicorn (pinned)
+python host/dashboard/app.py --vm <vm-ip>   # http://localhost:8000, read-only view of lg-bridge (TCP 5555)
+python tests/host/bridge_check.py <vm-ip>   # Step 10 host check (runs a stuck-clear case on the VM)
 python host/station_sim/sim.py      # level 3 station messages
 python host/campaign_runner/run.py campaigns/sensor_faults.json --ip <vm-ip>   # Step 9 campaign
 python host/campaign_runner/run.py campaigns/full_campaign.json --ip <vm-ip>
@@ -112,6 +114,8 @@ cat /dev/lg/gate
 cat /dev/lg/events            # level changes and maintenance tickets
 lgctl sensor west/a fault drift 2
 lgctl kill sensor west/b
+lgctl kill bridge             # lg-bridge restarts; level 1 until T_stable, the gate is not affected
+cat /dev/lg/bridge            # bridge clients, drops, rejected inbound lines, replayed events
 lgctl guard-ack --id G01
 ```
 
