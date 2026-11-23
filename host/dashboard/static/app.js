@@ -39,12 +39,23 @@ function updateHeader() {
   setText("stalls", String(state.stalls));
 }
 
+// "t" on every bridge line is the bridge clock (target CLOCK_MONOTONIC, seconds since the VM booted).
+// Shown as plant (scenario) time, worked out from the latest state line, which carries both clocks.
+function eventTime(ev) {
+  if (typeof ev.t !== "number") return "";
+  if (state && typeof state.t === "number" && typeof state.plant_ms === "number") {
+    const s = state.plant_ms / 1000 + (ev.t - state.t);
+    if (s >= 0) return "plant " + s.toFixed(1) + " s";
+  }
+  return "uptime " + ev.t.toFixed(1) + " s";
+}
+
 function addInbox(ev) {
   const ul = document.getElementById("inbox");
   const li = document.createElement("li");
   const t = document.createElement("span");
   t.className = "t";
-  t.textContent = (typeof ev.t === "number" ? ev.t.toFixed(1) : "") + "s";
+  t.textContent = eventTime(ev);
   li.appendChild(t);
   if (ev.kind === "level") {
     li.className = "level";
