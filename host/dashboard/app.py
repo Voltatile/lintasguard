@@ -21,7 +21,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from relay import Relay
+from relay import Relay, origin_allowed
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
@@ -67,6 +67,10 @@ async def link() -> JSONResponse:
 
 @app.websocket("/ws")
 async def ws(socket: WebSocket) -> None:
+    # Only the dashboard page may read the stream, not any other page open in the browser (review L4).
+    if not origin_allowed(socket.headers.get("origin"), socket.headers.get("host")):
+        await socket.close(code=1008)
+        return
     await socket.accept()
     queue = relay.subscribe()
 

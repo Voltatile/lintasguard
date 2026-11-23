@@ -13,11 +13,23 @@ import json
 import time
 from collections import deque
 from typing import Any
+from urllib.parse import urlsplit
 
 SUBSCRIBE = b'{"kind":"subscribe"}\n'
 HISTORY = 50          # notifications and level changes kept for a browser that connects later
 QUEUE_MAX = 400       # lines buffered per browser; a slow browser loses the oldest ones
 MAX_LINE = 64 * 1024  # a longer line from the bridge is dropped
+
+
+def origin_allowed(origin: str | None, host: str | None) -> bool:
+    """WebSocket Origin check: only the dashboard page itself (same host and port as the request) may
+    open /ws. A request without an Origin header is not from a browser page and is allowed."""
+    if origin is None:
+        return True
+    parts = urlsplit(origin)
+    if parts.scheme not in ("http", "https") or not parts.netloc or not host:
+        return False
+    return parts.netloc.lower() == host.lower()
 
 
 def _reject_constant(name: str) -> Any:

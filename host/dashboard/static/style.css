@@ -5,6 +5,7 @@ header .sub { opacity: 0.7; font-size: 13px; flex: 1; }
 .level { padding: 6px 14px; border-radius: 6px; font-weight: 700; }
 .l0 { background: #2e9e4f; } .l1 { background: #d4b20f; color: #1d2330; } .l2 { background: #e47a12; }
 .l3 { background: #d0342c; } .l4 { background: #7a1018; }
+.lunknown { background: #6b7280; }
 .link { font-size: 13px; padding: 4px 10px; border-radius: 6px; }
 .link.up { background: #2e9e4f; } .link.down { background: #d0342c; } .link.stale { background: #e47a12; }
 main { display: flex; gap: 16px; padding: 16px; }

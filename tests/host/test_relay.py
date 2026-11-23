@@ -145,5 +145,22 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(relay.handle_line(b'{"kind":"state","x":"' + b"a" * 70000 + b'"}'))
 
 
+class OriginTests(unittest.TestCase):
+    def test_only_the_dashboard_page_may_open_the_websocket(self) -> None:
+        # Review finding L4: any web page in the user's browser could read the stream otherwise.
+        from relay import origin_allowed
+
+        self.assertTrue(origin_allowed(None, "localhost:8000"))            # not a browser (no Origin)
+        self.assertTrue(origin_allowed("http://localhost:8000", "localhost:8000"))
+        self.assertTrue(origin_allowed("http://127.0.0.1:8000", "127.0.0.1:8000"))
+        self.assertTrue(origin_allowed("http://[::1]:8000", "[::1]:8000"))
+        self.assertTrue(origin_allowed("http://192.168.1.5:8000", "192.168.1.5:8000"))  # same host as served
+        self.assertFalse(origin_allowed("https://evil.example", "localhost:8000"))
+        self.assertFalse(origin_allowed("http://localhost.evil.example:8000", "localhost:8000"))
+        self.assertFalse(origin_allowed("http://localhost:9999", "localhost:8000"))     # another local app
+        self.assertFalse(origin_allowed("null", "localhost:8000"))
+        self.assertFalse(origin_allowed("", "localhost:8000"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -18,17 +18,19 @@ function fmtMs(ms) {
 function setText(id, text) { document.getElementById(id).textContent = text; }
 
 function updateHeader() {
+  // A null level (no controller reading, review finding M1) is shown as unknown, never as level 0.
   const lv = document.getElementById("level");
-  const l = state ? state.level : 4;
-  lv.className = "level l" + Math.min(4, Math.max(0, l));
-  lv.textContent = state ? "level " + l : "level ?";
+  const l = state && typeof state.level === "number" ? state.level : null;
+  lv.className = "level " + (l === null ? "lunknown" : "l" + Math.min(4, Math.max(0, l)));
+  lv.textContent = l === null ? (state ? "level ? (no controller data)" : "level ?") : "level " + l;
   const ln = document.getElementById("link");
   const stale = state && state.stale;
   if (!link.connected) { ln.className = "link down"; ln.textContent = "bridge: no link"; }
   else if (stale) { ln.className = "link stale"; ln.textContent = "bridge: stale data"; }
   else { ln.className = "link up"; ln.textContent = "bridge: live (" + link.target + ")"; }
   if (!state) return;
-  setText("gate", state.gate + " (" + state.gate_position + "°)");
+  setText("gate", typeof state.gate_position === "number"
+    ? state.gate + " (" + state.gate_position + "°)" : "unknown (no gate data)");
   setText("lights", state.lights ? "ON, bell " + (state.bell ? "on" : "off") : "off");
   const act = [];
   if (state.active && state.active[0]) act.push("west");
@@ -79,6 +81,8 @@ function handle(msg) {
   if (msg.kind === "hello") {
     link = msg.link || link;
     if (msg.state) state = msg.state;
+    // hello carries the whole history: start the inbox again (a reconnect must not double it, review L3)
+    document.getElementById("inbox").replaceChildren();
     (msg.history || []).forEach(addInbox);
     Object.entries(msg.metrics || {}).forEach(([k, v]) => setMetric(k, v));
   } else if (msg.kind === "link") {
@@ -151,10 +155,12 @@ function draw() {
     if (mid > 20 && mid < W - 20) ctx.fillText("T" + t.id + (t.dir === "west" ? " →" : " ←"), mid - 14, y + 4);
   });
   // gate arms: 0 deg = up (vertical), 90 deg = down (across the road)
-  const pos = state ? state.gate_position : 90;
+  // Unknown gate (no reading: null) is drawn grey and across the road, never as UP.
+  const known = state && typeof state.gate_position === "number";
+  const pos = known ? state.gate_position : 90;
   const ang = (Math.PI / 2) * (pos / 90);
   const arm = (px, py, dir) => {
-    ctx.strokeStyle = "#d0342c";
+    ctx.strokeStyle = known ? "#d0342c" : "#9aa0a6";
     ctx.lineWidth = 6;
     ctx.beginPath();
     ctx.moveTo(px, py);
