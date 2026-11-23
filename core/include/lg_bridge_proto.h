@@ -92,7 +92,22 @@ typedef struct {
 
 int lg_bridge_parse_event(const char *line, lg_bridge_event_t *ev); /* 0 ok, -1 not an event line */
 
-/* Outbound lines, newline and NUL terminated. Return the length (0 when it does not fit). */
+/* Which events of one read of /dev/lg/events are new. The ring holds the events oldest first with rising
+ * seq; a restarted controller starts again at seq 1 with an empty ring. The tracker remembers the last
+ * event sent (seq and t_ms): when the ring still holds that event, only the events after it are new;
+ * otherwise (another controller, or the event already left the ring) every event in the ring is new. */
+typedef struct {
+    uint32_t last_seq;
+    uint32_t last_t_ms;
+    uint8_t have; /* an event was sent already */
+    uint8_t reserved[3];
+} lg_bridge_evtrack_t;
+void lg_bridge_evtrack_init(lg_bridge_evtrack_t *k);
+/* Index of the first new event in ev[0..n-1] (n = none new); remembers ev[n-1] when n > 0. */
+uint32_t lg_bridge_evtrack_first_new(lg_bridge_evtrack_t *k, const lg_bridge_event_t *ev, uint32_t n);
+
+/* Outbound lines, newline and NUL terminated. The state line writes null for the level when ctl_ok is 0
+ * and for the gate and its position when gate_ok is 0 (never a 0 that reads as level 0 or gate UP). Return the length (0 when it does not fit). */
 size_t lg_bridge_state_json(const lg_bridge_state_t *s, char *buf, size_t len);
 size_t lg_bridge_event_json(const lg_bridge_event_t *ev, char *buf, size_t len);
 size_t lg_bridge_metric_json(uint32_t t_ms, const char *name, int64_t value, char *buf, size_t len);

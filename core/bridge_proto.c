@@ -330,9 +330,18 @@ size_t lg_bridge_state_json(const lg_bridge_state_t *s, char *buf, size_t len) {
     jw_fmt_u(&w, "ctl_ok", s->ctl_ok);
     jw_fmt_u(&w, "gate_ok", s->gate_ok);
     jw_fmt_u(&w, "plant_ok", s->plant_ok);
-    jw_fmt_u(&w, "level", s->level);
-    jw_str(&w, "gate", s->gate_state);
-    jw_fmt_i(&w, "gate_position", s->gate_position);
+    /* Unknown is null, never 0: 0 would read as level 0 / gate at 0 degrees (UP). Review finding M1. */
+    if (s->ctl_ok) {
+        jw_fmt_u(&w, "level", s->level);
+    } else {
+        jw_raw(&w, ",\"level\":null");
+    }
+    if (s->gate_ok) {
+        jw_str(&w, "gate", s->gate_state);
+        jw_fmt_i(&w, "gate_position", s->gate_position);
+    } else {
+        jw_raw(&w, ",\"gate\":null,\"gate_position\":null");
+    }
     jw_fmt_u(&w, "lights", s->lights);
     jw_fmt_u(&w, "bell", s->bell);
     (void)snprintf(t, sizeof t, ",\"active\":[%u,%u]", (unsigned)(s->active_west != 0), (unsigned)(s->active_east != 0));
@@ -539,4 +548,31 @@ uint32_t lg_bridge_recent_select(const lg_bridge_recent_t *r, size_t budget) {
         k++;
     }
     return k;
+}
+
+/* ---- new events of a ring read ----------------------------------------------------------------- */
+
+void lg_bridge_evtrack_init(lg_bridge_evtrack_t *k) {
+    memset(k, 0, sizeof *k);
+}
+
+uint32_t lg_bridge_evtrack_first_new(lg_bridge_evtrack_t *k, const lg_bridge_event_t *ev, uint32_t n) {
+    uint32_t first = 0;
+    uint32_t i;
+
+    if (n == 0) {
+        return 0; /* an empty ring (a controller just restarted): keep what was sent */
+    }
+    if (k->have) {
+        for (i = 0; i < n; i++) {
+            if (ev[i].seq == k->last_seq && ev[i].t_ms == k->last_t_ms) {
+                first = i + 1; /* the same controller: everything after the last event sent */
+                break;
+            }
+        }
+    }
+    k->have = 1;
+    k->last_seq = ev[n - 1].seq;
+    k->last_t_ms = ev[n - 1].t_ms;
+    return first;
 }

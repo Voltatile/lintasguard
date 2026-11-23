@@ -272,6 +272,7 @@ static void test_hostile_text_stays_json(void) {
 
     /* Quotes, backslashes and control characters in the gate state field. */
     memset(&st, 0, sizeof st);
+    st.gate_ok = 1; /* the gate text is written only for a gate reading (null otherwise) */
     memcpy(st.gate_state, "a\"b\\c\n\t\x01" "d", 9);
     n = lg_bridge_state_json(&st, line, sizeof line);
     o = valid_line(line, n);
@@ -347,6 +348,7 @@ static void test_non_ascii_device_text_does_not_break_line(void) {
     int clean = 1;
 
     memset(&st, 0, sizeof st);
+    st.gate_ok = 1; /* the gate text is written only for a gate reading (null otherwise) */
     memcpy(st.gate_state, "UP\xff\xfe", 5);
     n = lg_bridge_state_json(&st, line, sizeof line);
     CHECK(n > 0);

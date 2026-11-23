@@ -1,4 +1,4 @@
-# tests/target/step10_bridge.sh on the QNX 8.0 VM, 2026-11-23, lg-bridge with the event replay (uncommitted change on 71d70a6)
+# tests/target/step10_bridge.sh on the QNX 8.0 VM, 2026-11-23, binaries with the Step 10 review fixes (uncommitted on 1a659d4, committed right after)
 === part 1: boot with the bridge
 PASS: fresh system (test_idle), bridge RUNNING
 PASS: every thread of lg-bridge runs at priority 10
@@ -9,7 +9,7 @@ PASS: the device reader keeps taking snapshots (2 s: at least 10 more)
 PASS: the supervisor keeps receiving bridge heartbeats
 PASS: the gate is UP and dark
 --- /dev/lg/bridge:
-port=5555 clients=0 accepted=0 dropped_slow=0 refused_full=0 lines_sent=0 in_lines=0 in_subscribe=0 in_station=0 in_rejected=0 snapshots=122 stale_rounds=0 events_sent=1 events_replayed=0
+port=5555 clients=0 accepted=0 dropped_slow=0 refused_full=0 lines_sent=0 in_lines=0 in_subscribe=0 in_station=0 in_rejected=0 snapshots=122 stale_rounds=0 events_sent=1 events_replayed=0 events_dropped=0 refused_error=0
 === part 2: kill the bridge once
 PASS: lgctl kill bridge: a new bridge is RUNNING within 5 s
 PASS: the supervisor counts one restart
@@ -20,9 +20,9 @@ PASS: level 0 again after T_stable (within 45 s)
 PASS: the gate is still UP and dark
 PASS: the new bridge listens on 5555
 --- /dev/lg/events:
-seq=1 t_ms=65577037 kind=LEVEL severity=INFO from=4 to=0 reason=2
-seq=2 t_ms=65584237 kind=LEVEL severity=WARNING from=0 to=1 reason=5
-seq=3 t_ms=65614268 kind=LEVEL severity=INFO from=1 to=0 reason=12
+seq=1 t_ms=71749184 kind=LEVEL severity=INFO from=4 to=0 reason=2
+seq=2 t_ms=71756444 kind=LEVEL severity=WARNING from=0 to=1 reason=5
+seq=3 t_ms=71786479 kind=LEVEL severity=INFO from=1 to=0 reason=12
 === part 3: kill the bridge until the restart budget is spent
 PASS: fresh system (test_idle), bridge RUNNING
 PASS: kill 1: replaced
@@ -31,20 +31,20 @@ PASS: kill 3: replaced
 PASS: kill 4 accepted by lgctl
 PASS: budget spent (3 per 10 s): the bridge is DEAD within 5 s
 PASS: no lg-bridge process is left
-PASS: a dead bridge raises the level to 1 only
+PASS: a dead bridge: level 1 within 3 s
 PASS: level 1 holds and the gate stays UP and dark for 10 s
 --- /dev/lg/supervisor:
 supervisor procs=10 budget=3 window_ms=10000 exits_ignored=0 hb_unknown=0 stalls=0
-proc=controller id=1 state=RUNNING phase=RUNNING pid=627777569 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=713 hb_ignored=0
-proc=gate id=2 state=RUNNING phase=RUNNING pid=627757081 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=717 hb_ignored=0
-proc=sensor/west/a id=3 state=RUNNING phase=RUNNING pid=627757082 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=716 hb_ignored=0
-proc=sensor/west/b id=4 state=RUNNING phase=RUNNING pid=627757083 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=715 hb_ignored=0
-proc=sensor/west/island id=5 state=RUNNING phase=RUNNING pid=627757084 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=716 hb_ignored=0
-proc=sensor/east/a id=6 state=RUNNING phase=RUNNING pid=627757085 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=716 hb_ignored=0
-proc=sensor/east/b id=7 state=RUNNING phase=RUNNING pid=627757086 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=715 hb_ignored=0
-proc=sensor/east/island id=8 state=RUNNING phase=RUNNING pid=627757087 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=715 hb_ignored=0
-proc=plant id=9 state=RUNNING phase=RUNNING pid=627757088 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=429 hb_ignored=0
-proc=bridge id=12 state=DEAD phase=DEAD pid=0 restarts=0/3 total=3 why=exit recovery_ms=29 hb_rx=249 hb_ignored=0
+proc=controller id=1 state=RUNNING phase=RUNNING pid=1546133537 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=720 hb_ignored=0
+proc=gate id=2 state=RUNNING phase=RUNNING pid=1546133529 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=723 hb_ignored=0
+proc=sensor/west/a id=3 state=RUNNING phase=RUNNING pid=1546133530 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=722 hb_ignored=0
+proc=sensor/west/b id=4 state=RUNNING phase=RUNNING pid=1546133531 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=722 hb_ignored=0
+proc=sensor/west/island id=5 state=RUNNING phase=RUNNING pid=1546133532 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=722 hb_ignored=0
+proc=sensor/east/a id=6 state=RUNNING phase=RUNNING pid=1546133533 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=722 hb_ignored=0
+proc=sensor/east/b id=7 state=RUNNING phase=RUNNING pid=1546133534 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=722 hb_ignored=0
+proc=sensor/east/island id=8 state=RUNNING phase=RUNNING pid=1546133535 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=722 hb_ignored=0
+proc=plant id=9 state=RUNNING phase=RUNNING pid=1546133536 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=433 hb_ignored=0
+proc=bridge id=12 state=DEAD phase=DEAD pid=0 restarts=0/3 total=3 why=exit recovery_ms=31 hb_rx=252 hb_ignored=0
 controller_link linked=1 sent=209 failed=0 rejected=0 connects=1 hb_no_info=0 foreign_pulses=0
 === part 4: the controller is stopped (SIGSTOP), the bridge keeps going
 PASS: fresh system (test_idle), bridge RUNNING
@@ -55,5 +55,12 @@ PASS: the bridge restart count is 0
 PASS: the supervisor kept receiving bridge heartbeats
 PASS: snapshots continue with the new controller (2 s: at least 10 more)
 --- /dev/lg/bridge:
-port=5555 clients=0 accepted=0 dropped_slow=0 refused_full=0 lines_sent=0 in_lines=0 in_subscribe=0 in_station=0 in_rejected=0 snapshots=143 stale_rounds=0 events_sent=1 events_replayed=0
-=== RESULT: 32 checks, 0 failed
+port=5555 clients=0 accepted=0 dropped_slow=0 refused_full=0 lines_sent=0 in_lines=0 in_subscribe=0 in_station=0 in_rejected=0 snapshots=143 stale_rounds=0 events_sent=1 events_replayed=0 events_dropped=0 refused_error=0
+=== part 5: boot with a bridge that cannot start (port 5555 and /dev/lg/bridge already taken)
+PASS: a stand-alone lg-bridge holds port 5555 and /dev/lg/bridge
+PASS: the supervisor's bridge cannot start: DEAD within 30 s (restart budget spent)
+PASS: the boot release still comes (bridge ignored for the boot), level 1 within 30 s
+PASS: the level change is 4 -> 1, reason 2 (boot released)
+PASS: the gate opens: UP within 10 s
+PASS: level 1 holds and the gate stays UP and dark for 5 s
+=== RESULT: 38 checks, 0 failed

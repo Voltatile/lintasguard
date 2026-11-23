@@ -338,7 +338,94 @@ static void test_recent(void) {
     }
 }
 
+/* Review finding M1: a missing controller or gate reading must not look like level 0 or a gate UP. */
+static void test_unknown_fields_are_null(void) {
+    lg_bridge_state_t st;
+    char line[LG_BRIDGE_LINE_MAX];
+
+    memset(&st, 0, sizeof st);
+    CHECK(lg_bridge_state_json(&st, line, sizeof line) > 0);
+    CHECK(strstr(line, "\"level\":null") != NULL);
+    CHECK(strstr(line, "\"gate\":null") != NULL);
+    CHECK(strstr(line, "\"gate_position\":null") != NULL);
+    CHECK(parse_line(line, strlen(line)) != NULL);
+
+    st.ctl_ok = 1;
+    st.gate_ok = 1;
+    st.level = 2;
+    memcpy(st.gate_state, "DOWN", 5);
+    st.gate_position = 90;
+    CHECK(lg_bridge_state_json(&st, line, sizeof line) > 0);
+    CHECK(strstr(line, "\"level\":2") != NULL);
+    CHECK(strstr(line, "\"gate\":\"DOWN\"") != NULL);
+    CHECK(strstr(line, "\"gate_position\":90") != NULL);
+
+    st.gate_ok = 0; /* controller read, gate not */
+    CHECK(lg_bridge_state_json(&st, line, sizeof line) > 0);
+    CHECK(strstr(line, "\"level\":2") != NULL);
+    CHECK(strstr(line, "\"gate\":null") != NULL);
+}
+
+static lg_bridge_event_t mk_ev(uint32_t seq, uint32_t t_ms) {
+    lg_bridge_event_t e;
+
+    memset(&e, 0, sizeof e);
+    e.seq = seq;
+    e.t_ms = t_ms;
+    e.kind = LG_BRIDGE_EV_LEVEL;
+    return e;
+}
+
+/* Review finding M2: which events of a ring read are new. A restarted controller numbers again from 1;
+ * the bridge must not skip its first events because their numbers were already seen. */
+static void test_event_tracker(void) {
+    lg_bridge_evtrack_t k;
+    lg_bridge_event_t ev[4];
+
+    lg_bridge_evtrack_init(&k);
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 0) == 0); /* empty ring, nothing */
+
+    ev[0] = mk_ev(1, 1000);
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 1) == 0); /* first read: all new */
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 1) == 1); /* same ring again: none */
+    ev[1] = mk_ev(2, 2000);
+    ev[2] = mk_ev(3, 2000);
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 3) == 1); /* only seq 2 and 3 */
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 3) == 3);
+
+    /* The controller restarts: its ring is empty for a while, then seq 1 (another time) appears. */
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 0) == 0);
+    ev[0] = mk_ev(1, 90000);
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 1) == 0); /* new controller: sent */
+    /* ... and grows past the old numbers: seq 2..4 of the new controller, all new once. */
+    ev[1] = mk_ev(2, 91000);
+    ev[2] = mk_ev(3, 92000);
+    ev[3] = mk_ev(4, 93000);
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 4) == 1);
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 4) == 4);
+
+    /* Restart where the new ring at the first read already holds as many events as the old one had. */
+    lg_bridge_evtrack_init(&k);
+    ev[0] = mk_ev(1, 100);
+    ev[1] = mk_ev(2, 200);
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 2) == 0);
+    ev[0] = mk_ev(1, 5000);
+    ev[1] = mk_ev(2, 5100);
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 2) == 0);
+
+    /* Same controller, the last seen event already left the ring (more than a ring of events between
+     * two reads): every event in the ring is newer, all sent. */
+    lg_bridge_evtrack_init(&k);
+    ev[0] = mk_ev(5, 500);
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 1) == 0);
+    ev[0] = mk_ev(40, 4000);
+    ev[1] = mk_ev(41, 4100);
+    CHECK(lg_bridge_evtrack_first_new(&k, ev, 2) == 0);
+}
+
 int main(void) {
+    test_unknown_fields_are_null();
+    test_event_tracker();
     test_recent();
     test_kv();
     test_state();

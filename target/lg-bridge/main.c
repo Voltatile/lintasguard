@@ -60,6 +60,7 @@
 #define LG_BR_METRIC_PERIOD_MS 1000
 #define LG_BR_STALE_MS 1000       /* no fresh snapshot for this long: state lines say stale */
 #define LG_BR_EV_QUEUE 64         /* event lines waiting for the main loop */
+#define LG_BR_EV_PER_READ 40      /* events parsed from one read of /dev/lg/events (the ring holds 32) */
 #define LG_BR_DEV_TEXT 6144
 
 static slog2_buffer_t g_log;
@@ -96,7 +97,6 @@ static struct {
     uint64_t closure_ms_per_hour;
     uint32_t warning_last_ms;
     uint32_t trains;
-    uint32_t wrong_side;
 } g_mb;
 
 /* ---- counters for /dev/lg/bridge (main loop writes, status thread reads under the lock) -------- */
@@ -107,6 +107,7 @@ static struct {
     uint32_t accepted_clients;
     uint32_t dropped_slow;
     uint32_t refused_full;
+    uint32_t refused_error; /* accepted socket could not be made non-blocking */
     uint32_t lines_sent;
     uint32_t in_lines;
     uint32_t in_subscribe;
@@ -116,26 +117,30 @@ static struct {
     uint32_t stale;
     uint32_t ev_sent;
     uint32_t ev_replayed;
+    uint32_t ev_dropped; /* copy of the mailbox counter: event lines lost because the queue was full */
     int port;
 } g_st;
 
 /* ---- reader thread ----------------------------------------------------------------------------- */
 
+/* One read() per open: our resource managers build the whole text for every read at offset 0 and it fits
+ * the buffer, and a second read would only make the server build it again (review finding L1). */
 static int read_dev(const char *path, char *buf, size_t len) {
     int fd = open(path, O_RDONLY);
     ssize_t n;
-    size_t used = 0;
 
+    buf[0] = '\0';
     if (fd == -1) {
+        return -1;
+    }
+    n = read(fd, buf, len - 1);
+    (void)close(fd);
+    if (n <= 0) {
         buf[0] = '\0';
         return -1;
     }
-    while (used + 1 < len && (n = read(fd, buf + used, len - 1 - used)) > 0) {
-        used += (size_t)n;
-    }
-    (void)close(fd);
-    buf[used] = '\0';
-    return used > 0 ? 0 : -1;
+    buf[n] = '\0';
+    return 0;
 }
 
 static uint8_t gate_state_code(const char *name) {
@@ -153,14 +158,15 @@ static uint8_t gate_state_code(const char *name) {
 static void *reader(void *arg) {
     static char text[LG_BR_DEV_TEXT];
     static lg_metrics_t metrics;
-    uint32_t last_seq = 0;
+    static lg_bridge_event_t evs[LG_BR_EV_PER_READ];
+    lg_bridge_evtrack_t track;
     int metrics_started = 0;
 
     (void)arg;
+    lg_bridge_evtrack_init(&track);
     for (;;) {
         lg_bridge_state_t st;
         uint32_t now = lg_now_ms();
-        uint32_t max_seq = 0;
         const char *line;
 
         memset(&st, 0, sizeof st);
@@ -190,56 +196,45 @@ static void *reader(void *arg) {
             g_mb.closure_ms_per_hour = lg_metrics_closure_ms_per_hour(&metrics);
             g_mb.warning_last_ms = metrics.warning.last_ms;
             g_mb.trains = metrics.trains;
-            g_mb.wrong_side = metrics.wrong_side_events;
         }
         (void)pthread_mutex_unlock(&g_mb_lock);
 
-        /* New events, oldest first; a smaller sequence number means a new controller. */
+        /* New events, oldest first. A restarted controller numbers again from 1: the tracker (core) finds
+         * the last event sent by seq and time, so the first events of a new controller are not skipped
+         * (review finding M2). */
         if (read_dev(LG_DEV_EVENTS, text, sizeof text) == 0) {
-            for (line = text; line != NULL && *line != '\0';) {
+            uint32_t nev = 0;
+            uint32_t first;
+            uint32_t i;
+
+            for (line = text; line != NULL && *line != '\0' && nev < LG_BR_EV_PER_READ;) {
                 const char *end = strchr(line, '\n');
                 size_t n = end ? (size_t)(end - line) : strlen(line);
                 char one[200];
-                lg_bridge_event_t ev;
 
                 if (n < sizeof one) {
                     memcpy(one, line, n);
                     one[n] = '\0';
-                    if (lg_bridge_parse_event(one, &ev) == 0 && ev.seq > max_seq) {
-                        max_seq = ev.seq;
+                    if (lg_bridge_parse_event(one, &evs[nev]) == 0) {
+                        nev++;
                     }
                 }
                 line = end ? end + 1 : NULL;
             }
-            if (max_seq < last_seq) {
-                last_seq = 0; /* the controller was restarted: its ring starts again at 1 */
-            }
-            for (line = text; line != NULL && *line != '\0';) {
-                const char *end = strchr(line, '\n');
-                size_t n = end ? (size_t)(end - line) : strlen(line);
-                char one[200];
-                lg_bridge_event_t ev;
+            first = lg_bridge_evtrack_first_new(&track, evs, nev);
+            for (i = first; i < nev; i++) {
+                char json[LG_BRIDGE_LINE_MAX];
 
-                if (n < sizeof one) {
-                    memcpy(one, line, n);
-                    one[n] = '\0';
-                    if (lg_bridge_parse_event(one, &ev) == 0 && ev.seq > last_seq) {
-                        char json[LG_BRIDGE_LINE_MAX];
-
-                        if (lg_bridge_event_json(&ev, json, sizeof json) > 0) {
-                            (void)pthread_mutex_lock(&g_mb_lock);
-                            if (g_mb.ev_tail - g_mb.ev_head < LG_BR_EV_QUEUE) {
-                                memcpy(g_mb.ev[g_mb.ev_tail % LG_BR_EV_QUEUE], json, sizeof json);
-                                g_mb.ev_tail++;
-                            } else {
-                                g_mb.ev_dropped++;
-                            }
-                            (void)pthread_mutex_unlock(&g_mb_lock);
-                        }
-                        last_seq = ev.seq;
+                if (lg_bridge_event_json(&evs[i], json, sizeof json) > 0) {
+                    (void)pthread_mutex_lock(&g_mb_lock);
+                    if (g_mb.ev_tail - g_mb.ev_head < LG_BR_EV_QUEUE) {
+                        memcpy(g_mb.ev[g_mb.ev_tail % LG_BR_EV_QUEUE], json, sizeof json);
+                        g_mb.ev_tail++;
+                    } else {
+                        g_mb.ev_dropped++;
                     }
+                    (void)pthread_mutex_unlock(&g_mb_lock);
                 }
-                line = end ? end + 1 : NULL;
             }
         }
         {
@@ -416,7 +411,11 @@ static void accept_client(int lfd) {
     flags = fcntl(fd, F_GETFL, 0);
     if (i == LG_BR_MAX_CLIENTS || flags == -1 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
         (void)pthread_mutex_lock(&g_st_lock);
-        g_st.refused_full++;
+        if (i == LG_BR_MAX_CLIENTS) {
+            g_st.refused_full++;
+        } else {
+            g_st.refused_error++;
+        }
         (void)pthread_mutex_unlock(&g_st_lock);
         (void)close(fd);
         return;
@@ -456,6 +455,7 @@ static void send_round(uint32_t now, uint32_t *last_metric) {
     uint32_t warn_ms;
     uint32_t trains;
     uint32_t snapshots;
+    uint32_t dropped;
     size_t n;
     uint32_t k;
 
@@ -469,6 +469,7 @@ static void send_round(uint32_t now, uint32_t *last_metric) {
     closure = g_mb.closure_ms_per_hour;
     warn_ms = g_mb.warning_last_ms;
     trains = g_mb.trains;
+    dropped = g_mb.ev_dropped;
     (void)pthread_mutex_unlock(&g_mb_lock);
 
     st.stale = (uint8_t)(snapshots == 0 || lg_elapsed_ge(now, st.t_ms, LG_BR_STALE_MS));
@@ -483,6 +484,7 @@ static void send_round(uint32_t now, uint32_t *last_metric) {
     g_st.snapshots = snapshots;
     g_st.stale += st.stale;
     g_st.ev_sent += nev;
+    g_st.ev_dropped = dropped;
     (void)pthread_mutex_unlock(&g_st_lock);
     if (lg_elapsed_ge(now, *last_metric, LG_BR_METRIC_PERIOD_MS)) {
         *last_metric = now;
@@ -506,12 +508,12 @@ static size_t status_text(char *buf, size_t len) {
     n = snprintf(buf, len,
                  "port=%d clients=%u accepted=%u dropped_slow=%u refused_full=%u lines_sent=%u in_lines=%u "
                  "in_subscribe=%u in_station=%u in_rejected=%u snapshots=%u stale_rounds=%u events_sent=%u "
-                 "events_replayed=%u\n",
+                 "events_replayed=%u events_dropped=%u refused_error=%u\n",
                  g_st.port, (unsigned)g_st.clients, (unsigned)g_st.accepted_clients, (unsigned)g_st.dropped_slow,
                  (unsigned)g_st.refused_full, (unsigned)g_st.lines_sent, (unsigned)g_st.in_lines,
                  (unsigned)g_st.in_subscribe, (unsigned)g_st.in_station, (unsigned)g_st.in_rejected,
                  (unsigned)g_st.snapshots, (unsigned)g_st.stale, (unsigned)g_st.ev_sent,
-                 (unsigned)g_st.ev_replayed);
+                 (unsigned)g_st.ev_replayed, (unsigned)g_st.ev_dropped, (unsigned)g_st.refused_error);
     (void)pthread_mutex_unlock(&g_st_lock);
     if (n < 0) {
         buf[0] = '\0';
@@ -658,8 +660,8 @@ int main(int argc, char **argv) {
     int port = LG_BRIDGE_PORT;
     int lfd;
     int i;
-    uint32_t last_round = 0;
-    uint32_t last_metric = 0;
+    uint32_t last_round;
+    uint32_t last_metric;
 
     for (i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-v") == 0) {
@@ -706,6 +708,10 @@ int main(int argc, char **argv) {
         logf_(SLOG2_WARNING, "heartbeat thread not started: no supervision");
     }
     g_loop_started = 1;
+    /* Due at once, and valid at any uptime: 0 would be "in the future" between 2^31 and 2^32 ms of
+     * uptime and stop every round for 25 days (review finding L2). */
+    last_round = lg_now_ms() - LG_BR_PERIOD_MS;
+    last_metric = lg_now_ms() - LG_BR_METRIC_PERIOD_MS;
 
     for (;;) {
         fd_set rd;
