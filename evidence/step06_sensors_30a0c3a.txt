@@ -1,0 +1,180 @@
+=== step06_sensors: Sun Nov 22 19:10:57 UTC 2026
+=== QNX lintasguard 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64
+--- baseline: a bare 10 ms timer pulse at priority 45, nothing else running (10 s)
+jitter: priority 45, 1000 ticks: late=114 late_percent=11 over_20ms=7 largest_gap_us=36532
+PASS: the timer baseline was measured
+--- phase 1: scenario test_idle
+PASS: lg-plant starts and registers /dev/name/local/lg/plant
+PASS: six lg-sensor processes start and register their devices
+PASS: all six /dev/lg/sensor/<dir>/<id> paths exist
+--- cat /dev/lg/plant:
+t_ms=1750 scenario=test_idle trains=1 waiting=1 active=0 finished=0 island=0
+--- idle samples:
+west/a: occupied=0 quality=97 axles=0 raw=207 fault=NONE seq=164 tick=164
+west/b: occupied=0 quality=97 axles=0 raw=178 fault=NONE seq=154 tick=154
+west/island: occupied=0 quality=97 axles=0 raw=215 fault=NONE seq=144 tick=144
+east/a: occupied=0 quality=97 axles=0 raw=178 fault=NONE seq=135 tick=135
+east/b: occupied=0 quality=97 axles=0 raw=181 fault=NONE seq=125 tick=125
+east/island: occupied=0 quality=97 axles=0 raw=184 fault=NONE seq=115 tick=115
+PASS: idle: every sensor reads clear, 0 axles, fault NONE
+PASS: idle: every sensor has quality 90 or more
+PASS: the sensor text has the documented format
+PASS: lg-sensor device thread runs SCHED_FIFO priority 45 (read back through devctl)
+PASS: lg-sensor worker thread runs SCHED_FIFO priority 45 (read back by the worker itself, all six sensors)
+--- write attempt on a sensor device:
+dd: /dev/lg/sensor/west/a: write error: Operation not permitted
+1+0 records in
+0+0 records out
+0 bytes (0 B) copied, 0.001 s, 0 B/s
+PASS: writing to a sensor device is refused (dd non-zero, 0 bytes copied)
+/dev/lg/sensor/west/a: fault NOISE param=50 accepted
+--- west/a raw spread: healthy 44 counts, noise 50: 599 counts, quality 50
+PASS: healthy raw spread is small (60 counts or less)
+PASS: lgctl sensor west/a noise 50 widens the raw spread (300 counts or more)
+PASS: noise 50 gives quality 50
+/dev/lg/sensor/west/a: fault NONE param=0 accepted
+PASS: fault none brings the raw spread back (60 counts or less)
+PASS: fault none brings the quality back to 97
+PASS: the other five sensors were not affected by noise on west/a (quality 97)
+/dev/lg/sensor/west/b: fault STUCK_OCCUPIED param=0 accepted
+--- west/b stuck-occupied: occupied=1 quality=97 axles=0 raw=823 fault=STUCK_OCCUPIED seq=1120 tick=1120
+PASS: stuck-occupied: west/b reads occupied with no train
+PASS: stuck-occupied: the sensor still reports good quality (it looks healthy)
+PASS: stuck-occupied: west/a next to it still reads clear
+/dev/lg/sensor/west/b: fault NONE param=0 accepted
+PASS: stuck-occupied cleared: west/b reads clear again
+--- sink after 10 s without dropout or hang:
+sink: up, registered lg/controller, running 10 s
+sink: west/a count=980 gaps=0 reorder=0 max_age_us=147 avg_age_us=25
+sink: west/b count=989 gaps=0 reorder=0 max_age_us=196 avg_age_us=25
+sink: west/island count=1000 gaps=0 reorder=0 max_age_us=174 avg_age_us=16
+sink: east/a count=989 gaps=0 reorder=0 max_age_us=135 avg_age_us=8
+sink: east/b count=999 gaps=0 reorder=0 max_age_us=128 avg_age_us=16
+sink: east/island count=988 gaps=0 reorder=0 max_age_us=101 avg_age_us=5
+sink: invalid=0
+PASS: sink: every sensor delivered 800 samples or more in about 10 s
+--- baseline: 7 of 1000 ticks of the bare timer were 20 ms or more late (0 percent)
+PASS: sink: sequence gaps of every sensor are at most the baseline percentage of 20 ms stalls plus 2 points
+--- largest sample age of any sensor: 196 us (README 10.3 asks for under 20000 us; this is information, VM timer jitter decides it)
+PASS: sink: the average sample age is below 2 ms for every sensor
+--- west/a ticks=1238 overruns=3 (overrun = tick more than 2 ms later than 10 ms)
+--- west/a overruns: 0 percent of its ticks; the bare timer of the baseline: 11 percent
+PASS: west/a overruns are at most 10 points above the bare timer baseline
+/dev/lg/sensor/east/a: fault DROPOUT param=50 accepted
+/dev/lg/sensor/east/b: fault HANG param=0 accepted
+--- east/a dropout 50: 141 of 305 ticks without a sample = 46 percent
+--- east/b hang: samples_sent 1192 -> 1192, no_sample 4 -> 308
+PASS: dropout 50: between 35 and 65 percent of the ticks have no sample
+PASS: hang: east/b sends no samples while hung
+PASS: hang: east/b counts its silent ticks
+PASS: hang: east/b still answers reads and shows fault=HANG
+/dev/lg/sensor/east/a: fault NONE param=0 accepted
+/dev/lg/sensor/east/b: fault NONE param=0 accepted
+--- sink with dropout on east/a and hang on east/b:
+sink: up, registered lg/controller, running 8 s
+sink: west/a count=793 gaps=0 reorder=0 max_age_us=170 avg_age_us=27
+sink: west/b count=783 gaps=0 reorder=0 max_age_us=123 avg_age_us=26
+sink: west/island count=793 gaps=0 reorder=0 max_age_us=146 avg_age_us=18
+sink: east/a count=641 gaps=142 reorder=0 max_age_us=127 avg_age_us=8
+sink: east/b count=482 gaps=310 reorder=0 max_age_us=193 avg_age_us=21
+sink: east/island count=782 gaps=0 reorder=0 max_age_us=115 avg_age_us=5
+sink: invalid=0
+--- gaps seen by the sink: east/a=142 east/b=310
+PASS: sink sees the dropout as sequence gaps on east/a (100 or more)
+PASS: sink sees the hang as sequence gaps on east/b (200 or more)
+PASS: sink: no gaps on the four healthy sensors
+--- east/b after the hang: no_sample 310 -> 310, ticks 2113 -> 2216
+PASS: hang cleared: east/b produces samples again (no_sample stops growing)
+PASS: hang cleared: east/b keeps ticking
+PASS: before the stop: west/a delivers samples to the controller stand-in
+PASS: controller stopped: reading the sensor device still answers within 2 s
+PASS: controller stopped: lgctl stats still answers within 2 s
+PASS: controller stopped: a read of a second sensor still answers within 2 s
+--- ticks of west/a while the controller is stopped: 2991 -> 3191 (information: a worker that is blocked in a reply does not tick)
+--- west/a while the controller is stopped: occupied=0 quality=97 axles=0 raw=207 fault=NONE seq=3194 tick=3194
+PASS: controller continued: the sensor ticks again (50 or more ticks in 1 s)
+--- controller gone: west/a no_controller 699 -> 802, connects 4
+PASS: controller gone: the sensor counts ticks without a controller
+--- new controller: west/a connects 4 -> 5
+PASS: a new controller is found again (connects went up)
+PASS: a new controller receives the samples again
+/dev/lg/sensor/east/island: fault DRIFT param=10 accepted
+--- east/island after 4 s of drift 10: quality 57
+PASS: drift 10: the quality fell below 70 after 4 s
+PASS: drift 10: the quality is still above 0 after 4 s
+/dev/lg/sensor/east/island: fault NONE param=0 accepted
+PASS: lgctl: a noise level above 100 is rejected (exit code 3 = EINVAL)
+PASS: lgctl: a delay above 2000 ms is rejected (exit code 3)
+PASS: lgctl: a fault through a read-only descriptor is refused (exit code 4 = EPERM)
+PASS: the refused and rejected requests changed nothing on west/a
+PASS: lgctl: an unknown mode is a usage error (exit code 2)
+PASS: lgctl: an unknown sensor is a usage error (exit code 2)
+PASS: after CRASH the device /dev/lg/sensor/west/island is gone
+PASS: after CRASH the other five sensors are still there
+PASS: the crashed sensor starts again
+PASS: the restarted sensor reads clear with fault NONE
+--- plant restart
+--- west/a without a plant: occupied=0 quality=0 axles=0 raw=0 fault=NONE seq=5332 tick=5332, plant_fail 101 -> 203
+PASS: without the plant a sensor reports quality 0
+PASS: without the plant the failures are counted
+PASS: lg-plant starts again
+--- west/a with the plant back: occupied=0 quality=97 axles=0 raw=180 fault=NONE seq=5645 tick=5645, plant time 3120 ms
+PASS: all six sensors reconnect to the restarted plant (quality back to 97)
+PASS: the restarted plant restarted the scenario clock (under 5 s)
+--- phase 2: scenario test_short
+/dev/lg/sensor/east/b: fault DELAY param=1000 accepted
+--- east/b has a 1000 ms delay for the east train; tracing until plant time 52 s
+--- trace: 534 lines, first and last:
+1750 0 0 0 0 0 0 0 0 0 0 0 0
+52038 0 8 0 8 0 8 0 6 0 6 0 6
+--- trace columns: t waOcc waAxl wbOcc wbAxl wiOcc wiAxl eaOcc eaAxl ebOcc ebAxl eiOcc eiAxl
+--- west train: west/a occupied 5052..9008 ms, west/b from 5052, island 18347..22675, east island from 18347
+--- largest step of the trace (one round of the loop): 125 ms
+PASS: trace has at least 60 lines
+PASS: the largest step of the trace is below 1500 ms (the brackets stay meaningful)
+PASS: west train: west/a goes occupied at the strike-in time (model: 5001 ms, bracketed by the trace)
+PASS: west train: west/a goes clear when the rear leaves its zone (model: 9067 ms, bracketed)
+PASS: west train: west/b goes occupied together with west/a (within one round of the trace)
+PASS: west train: the island sensor goes occupied when the front enters (model: 18334 ms, bracketed)
+PASS: west train: the island sensor goes clear when the rear leaves (model: 22734 ms, bracketed)
+PASS: west train: the east island sensor also sees the train on the island (physical occupancy)
+PASS: west train: east/a never reads occupied (direction aware)
+PASS: west train: east/b never reads occupied (direction aware)
+PASS: west train: west/a counted its 8 axles
+PASS: west train: west/b counted its 8 axles
+PASS: west train: the west island sensor counted 8 axles out
+PASS: west train: the east island sensor counted no axles (east trains only)
+--- east train: east/a occupied 30030..33982 ms, east/b from 31003 (lag 973 ms), island from 43398
+PASS: east train: east/a goes occupied at the strike-in time (model: 30001 ms, bracketed)
+PASS: east train: east/b with delay 1000 follows east/a by 1000 ms (within one round of the trace)
+PASS: east train: the east island sensor goes occupied (model: 43334 ms, bracketed)
+PASS: east train: west/a never reads occupied again
+PASS: east train: east/a counted 6 axles
+PASS: east train: east/b counted 6 axles (delayed, but all of them)
+PASS: east train: the east island sensor counted 6 axles out
+PASS: east train: the west counters stayed at 8
+PASS: east train: the west island counter stayed at 8
+--- plant at the end: t_ms=52408 scenario=test_short trains=2 waiting=0 active=0 finished=2 island=0
+train id=2 dir=east front_mm=672240 rear_mm=552240
+PASS: both trains are finished at the end of the scenario
+--- final stats of every sensor (information):
+west/a: stats: ticks=5231 samples_sent=0 no_sample=0 send_fail=0 no_controller=5231 plant_fail=0 overruns=7 timeouts=0 connects=1 fault=NONE fault_param=0 seq=5231 sched_policy=1 sched_priority=45 worker_policy=1 worker_priority=45
+west/b: stats: ticks=5221 samples_sent=0 no_sample=0 send_fail=0 no_controller=5221 plant_fail=0 overruns=34 timeouts=0 connects=1 fault=NONE fault_param=0 seq=5221 sched_policy=1 sched_priority=45 worker_policy=1 worker_priority=45
+west/island: stats: ticks=5211 samples_sent=0 no_sample=0 send_fail=0 no_controller=5211 plant_fail=0 overruns=2 timeouts=0 connects=1 fault=NONE fault_param=0 seq=5211 sched_policy=1 sched_priority=45 worker_policy=1 worker_priority=45
+east/a: stats: ticks=5201 samples_sent=0 no_sample=0 send_fail=0 no_controller=5201 plant_fail=0 overruns=14 timeouts=0 connects=1 fault=NONE fault_param=0 seq=5201 sched_policy=1 sched_priority=45 worker_policy=1 worker_priority=45
+east/b: stats: ticks=5191 samples_sent=0 no_sample=0 send_fail=0 no_controller=5191 plant_fail=0 overruns=5 timeouts=0 connects=1 fault=DELAY fault_param=1000 seq=5191 sched_policy=1 sched_priority=45 worker_policy=1 worker_priority=45
+east/island: stats: ticks=5181 samples_sent=0 no_sample=0 send_fail=0 no_controller=5181 plant_fail=0 overruns=13 timeouts=0 connects=1 fault=NONE fault_param=0 seq=5181 sched_policy=1 sched_priority=45 worker_policy=1 worker_priority=45
+--- slog2info, plant events:
+Nov 22 07:21:01.892             lg_plant.174116898                 main      0  t=238642 ms: train 6 (from east) has cleared the island
+Nov 22 19:10:01.258             lg_plant.180613141                 main      0  scenario sensor_faults: 6 trains, strike-in 400 m, island 12 m
+Nov 22 19:12:02.140             lg_plant.199016469                 main      0  scenario test_idle: 1 trains, strike-in 400 m, island 12 m
+Nov 22 19:12:06.376             lg_plant.199372821                 main      0  scenario test_short: 2 trains, strike-in 400 m, island 12 m
+Nov 22 19:12:11.377             lg_plant.199372821                 main      0  t=5000 ms: train 1 (from west) reaches the strike-in point
+Nov 22 19:12:24.727             lg_plant.199372821                 main      0  t=18333 ms: train 1 (from west) enters the island
+Nov 22 19:12:25.127             lg_plant.199372821                 main      0  t=18733 ms: train 1 (from west) front leaves the island
+Nov 22 19:12:29.128             lg_plant.199372821                 main      0  t=22733 ms: train 1 (from west) has cleared the island
+Nov 22 19:12:36.377             lg_plant.199372821                 main      0  t=30000 ms: train 2 (from east) reaches the strike-in point
+Nov 22 19:12:49.727             lg_plant.199372821                 main      0  t=43333 ms: train 2 (from east) enters the island
+Nov 22 19:12:50.127             lg_plant.199372821                 main      0  t=43733 ms: train 2 (from east) front leaves the island
+Nov 22 19:12:54.127             lg_plant.199372821                 main      0  t=47733 ms: train 2 (from east) has cleared the island
+=== RESULT: 82 checks, 0 failed
