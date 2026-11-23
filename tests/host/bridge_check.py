@@ -14,6 +14,7 @@ to lg-bridge on TCP 5555 from the host:
     oversized line, unknown and extra fields are answered with an error; the bridge rejected counter
     rises by exactly that number; the gate rejected counter does not move and the gate target equals
     the controller target (read over ssh);
+  - replay: a client that connects after the fault gets the level and notify lines once;
   - clients: a ninth client is refused while eight are connected; a client that never reads is
     dropped while a reading client keeps getting state lines;
   - the case itself passes on the target, including wrong_side_events 0 from lg-meter.
@@ -276,6 +277,26 @@ def main() -> int:
     gap = reader.max_gap_since(t_hog)
     check(f"the reading client kept getting state lines meanwhile (largest gap {gap:.2f} s, want < 2 s)",
           gap < 2.0)
+
+    # ---- a client that connects after the fault gets the recent events replayed ----------------
+    end = time.monotonic() + 200
+    while time.monotonic() < end and not any(o.get("to") == 2 for o in reader.level_lines):
+        time.sleep(1)
+    time.sleep(1)
+    late = Reader(ip, port)
+    late.start()
+    time.sleep(2)
+    late.stop = True
+    late.join(timeout=3)
+    late.sock.close()
+    replayed_level = [o for o in late.level_lines if o.get("from") == 0 and o.get("to") == 2]
+    replayed_notify = [o for o in late.notify_lines if o.get("diag") == "MISSED_TRAIN"]
+    check(f"a client connecting after the fault gets the level 0 -> 2 line replayed once "
+          f"({len(replayed_level)})", len(replayed_level) == 1)
+    check(f"... and the MISSED_TRAIN notify line once ({len(replayed_notify)})", len(replayed_notify) == 1)
+    first_seen = {(o.get("seq"), o.get("t")) for o in reader.level_lines + reader.notify_lines}
+    check("the replayed lines are the same events (same seq and t) the first client got",
+          all((o.get("seq"), o.get("t")) in first_seen for o in replayed_level + replayed_notify))
 
     # ---- the fault on the stream, and the case result -----------------------------------------
     case.wait(timeout=400)

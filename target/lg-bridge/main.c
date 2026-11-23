@@ -115,6 +115,7 @@ static struct {
     uint32_t snapshots;
     uint32_t stale;
     uint32_t ev_sent;
+    uint32_t ev_replayed;
     int port;
 } g_st;
 
@@ -263,6 +264,8 @@ typedef struct {
 
 static client_t g_cl[LG_BR_MAX_CLIENTS];
 static lg_json_doc_t g_doc;
+/* Event lines already sent, replayed to a client that connects later (main thread only). */
+static lg_bridge_recent_t g_recent;
 
 static void client_close(client_t *c, const char *why) {
     if (c->fd >= 0) {
@@ -426,7 +429,21 @@ static void accept_client(int lfd) {
     g_st.clients++;
     g_st.accepted_clients++;
     (void)pthread_mutex_unlock(&g_st_lock);
-    logf_(SLOG2_INFO, "client connected on fd %d (slot %d)", fd, i);
+    {
+        /* The recent events first, oldest first, at most half the output buffer (never a drop). */
+        uint32_t k = lg_bridge_recent_select(&g_recent, LG_BR_OUTBUF / 2);
+        uint32_t j;
+
+        for (j = g_recent.count - k; j < g_recent.count; j++) {
+            const char *ev = lg_bridge_recent_get(&g_recent, j);
+
+            client_queue(&g_cl[i], ev, strlen(ev));
+        }
+        (void)pthread_mutex_lock(&g_st_lock);
+        g_st.ev_replayed += k;
+        (void)pthread_mutex_unlock(&g_st_lock);
+        logf_(SLOG2_INFO, "client connected on fd %d (slot %d), %u recent events replayed", fd, i, (unsigned)k);
+    }
 }
 
 /* One round of output: a state line, queued event lines, and metric lines once a second. */
@@ -460,6 +477,7 @@ static void send_round(uint32_t now, uint32_t *last_metric) {
     broadcast(line, n);
     for (k = 0; k < nev; k++) {
         broadcast(evs[k], strlen(evs[k]));
+        lg_bridge_recent_push(&g_recent, evs[k]);
     }
     (void)pthread_mutex_lock(&g_st_lock);
     g_st.snapshots = snapshots;
@@ -487,11 +505,13 @@ static size_t status_text(char *buf, size_t len) {
     (void)pthread_mutex_lock(&g_st_lock);
     n = snprintf(buf, len,
                  "port=%d clients=%u accepted=%u dropped_slow=%u refused_full=%u lines_sent=%u in_lines=%u "
-                 "in_subscribe=%u in_station=%u in_rejected=%u snapshots=%u stale_rounds=%u events_sent=%u\n",
+                 "in_subscribe=%u in_station=%u in_rejected=%u snapshots=%u stale_rounds=%u events_sent=%u "
+                 "events_replayed=%u\n",
                  g_st.port, (unsigned)g_st.clients, (unsigned)g_st.accepted_clients, (unsigned)g_st.dropped_slow,
                  (unsigned)g_st.refused_full, (unsigned)g_st.lines_sent, (unsigned)g_st.in_lines,
                  (unsigned)g_st.in_subscribe, (unsigned)g_st.in_station, (unsigned)g_st.in_rejected,
-                 (unsigned)g_st.snapshots, (unsigned)g_st.stale, (unsigned)g_st.ev_sent);
+                 (unsigned)g_st.snapshots, (unsigned)g_st.stale, (unsigned)g_st.ev_sent,
+                 (unsigned)g_st.ev_replayed);
     (void)pthread_mutex_unlock(&g_st_lock);
     if (n < 0) {
         buf[0] = '\0';
@@ -675,6 +695,7 @@ int main(int argc, char **argv) {
     for (i = 0; i < LG_BR_MAX_CLIENTS; i++) {
         g_cl[i].fd = -1;
     }
+    lg_bridge_recent_init(&g_recent);
     g_st.port = port;
     lfd = setup_listener(port);
     if (lfd < 0 || setup_status_device() != 0 || start_thread(reader, NULL, LG_PRIO_BRIDGE, "device reader") != 0) {

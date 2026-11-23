@@ -101,6 +101,22 @@ size_t lg_bridge_reply_json(int ok, const char *what, const char *reason, char *
 /* Name of a mode-manager reason code (lg_mode_reason_t), "UNKNOWN" outside the table. */
 const char *lg_bridge_reason_name(uint32_t reason);
 
+/* Recent event lines (level and notify), replayed to each client right after it connects, so that a
+ * dashboard opened or reconnected after a ticket still shows it. Same size as the controller event ring.
+ * Lines are whole JSON lines with their newline; a line that does not fit a slot is not stored. */
+#define LG_BRIDGE_RECENT 32
+typedef struct {
+    char line[LG_BRIDGE_RECENT][LG_BRIDGE_LINE_MAX];
+    uint32_t count; /* stored lines, at most LG_BRIDGE_RECENT */
+    uint32_t next;  /* slot of the next push */
+} lg_bridge_recent_t;
+void lg_bridge_recent_init(lg_bridge_recent_t *r);
+void lg_bridge_recent_push(lg_bridge_recent_t *r, const char *line);
+/* How many of the newest stored lines fit in budget bytes together. */
+uint32_t lg_bridge_recent_select(const lg_bridge_recent_t *r, size_t budget);
+/* Stored line i, 0 = oldest; NULL outside 0..count-1. Replay: i from count - select() to count - 1. */
+const char *lg_bridge_recent_get(const lg_bridge_recent_t *r, uint32_t i);
+
 /* Inbound. */
 typedef enum {
     LG_BRIDGE_IN_REJECT = 0,

@@ -33,6 +33,8 @@ class Relay:
         self.state: dict[str, Any] | None = None
         self.metrics: dict[str, Any] = {}
         self.history: deque[dict[str, Any]] = deque(maxlen=HISTORY)
+        self._seen_order: deque[tuple[str, int, float]] = deque(maxlen=4 * HISTORY)
+        self._seen: set[tuple[str, int, float]] = set()
         self._subscribers: set[asyncio.Queue[str]] = set()
         self._stop = asyncio.Event()
 
@@ -99,6 +101,17 @@ class Relay:
         if kind == "state":
             self.state = obj
         elif kind in ("level", "notify"):
+            # lg-bridge replays its recent events to every new client: after a reconnect the same event
+            # (same seq and t) comes again and is kept and shown once.
+            seq, t = obj.get("seq"), obj.get("t")
+            if isinstance(seq, int) and isinstance(t, (int, float)):
+                key = (kind, seq, t)
+                if key in self._seen:
+                    return True
+                if len(self._seen_order) == self._seen_order.maxlen:
+                    self._seen.discard(self._seen_order[0])
+                self._seen_order.append(key)
+                self._seen.add(key)
             self.history.append(obj)
         elif kind == "metric" and isinstance(obj.get("name"), str):
             self.metrics[obj["name"]] = obj.get("value")

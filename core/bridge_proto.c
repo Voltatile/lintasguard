@@ -493,3 +493,47 @@ void lg_bridge_parse_in(lg_json_doc_t *doc, const char *line, size_t len, lg_bri
     }
     reject(out, "unknown_kind");
 }
+
+/* ---- recent event lines ------------------------------------------------------------------------ */
+
+void lg_bridge_recent_init(lg_bridge_recent_t *r) {
+    r->count = 0;
+    r->next = 0;
+}
+
+void lg_bridge_recent_push(lg_bridge_recent_t *r, const char *line) {
+    size_t n = strlen(line);
+
+    if (n == 0 || n >= LG_BRIDGE_LINE_MAX) {
+        return; /* never store half a line */
+    }
+    memcpy(r->line[r->next], line, n + 1);
+    r->next = (r->next + 1) % LG_BRIDGE_RECENT;
+    if (r->count < LG_BRIDGE_RECENT) {
+        r->count++;
+    }
+}
+
+const char *lg_bridge_recent_get(const lg_bridge_recent_t *r, uint32_t i) {
+    if (i >= r->count) {
+        return NULL;
+    }
+    /* the oldest stored line sits at next - count (mod size) */
+    return r->line[(r->next + LG_BRIDGE_RECENT - r->count + i) % LG_BRIDGE_RECENT];
+}
+
+uint32_t lg_bridge_recent_select(const lg_bridge_recent_t *r, size_t budget) {
+    uint32_t k = 0;
+    size_t used = 0;
+
+    while (k < r->count) {
+        size_t n = strlen(lg_bridge_recent_get(r, r->count - 1 - k));
+
+        if (n > budget - used) {
+            break;
+        }
+        used += n;
+        k++;
+    }
+    return k;
+}

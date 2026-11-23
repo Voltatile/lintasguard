@@ -121,6 +121,21 @@ class RelayTests(unittest.IsolatedAsyncioTestCase):
         relay.handle_line(STATE.strip())
         self.assertEqual(q.qsize(), QUEUE_MAX - 1)  # an unsubscribed queue gets nothing
 
+    async def test_replayed_events_are_not_doubled(self) -> None:
+        # lg-bridge replays its recent events to every new client, so after a reconnect the relay sees
+        # events it already has: same seq and t = the same event, kept and shown once.
+        relay = Relay("127.0.0.1", 9)
+        q = relay.subscribe()
+        lv = b'{"t":16550.0,"seq":2,"kind":"level","from":0,"to":2,"reason":"SENSOR_FAILED"}'
+        nt = b'{"t":16550.0,"seq":3,"kind":"notify","to":"maintenance","sensor":"west/a"}'
+        for raw in (lv, nt, lv, nt):
+            self.assertTrue(relay.handle_line(raw))
+        self.assertEqual([h["seq"] for h in relay.history], [2, 3])
+        self.assertEqual(q.qsize(), 2)
+        # A restarted controller numbers again from 1: another t, so a new event.
+        relay.handle_line(b'{"t":16600.0,"seq":2,"kind":"level","from":4,"to":0,"reason":"NONE"}')
+        self.assertEqual(len(relay.history), 3)
+
     async def test_history_is_bounded_and_long_lines_dropped(self) -> None:
         relay = Relay("127.0.0.1", 9)
         for i in range(HISTORY + 10):

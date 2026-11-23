@@ -286,7 +286,60 @@ static void test_inbound_fuzz(void) {
     CHECK(accepted > 0);
 }
 
+/* Recent event lines, replayed to a client that connects later (a dashboard opened or reconnected after
+ * a ticket must still see it). */
+static lg_bridge_recent_t g_recent;
+
+static void test_recent(void) {
+    char line[64];
+    uint32_t i;
+    size_t one;
+
+    lg_bridge_recent_init(&g_recent);
+    CHECK(lg_bridge_recent_select(&g_recent, 100000) == 0);
+    CHECK(lg_bridge_recent_get(&g_recent, 0) == NULL);
+
+    for (i = 0; i < 3; i++) {
+        (void)snprintf(line, sizeof line, "{\"seq\":%u}\n", (unsigned)(i + 1));
+        lg_bridge_recent_push(&g_recent, line);
+    }
+    CHECK(lg_bridge_recent_select(&g_recent, 100000) == 3);
+    CHECK(strcmp(lg_bridge_recent_get(&g_recent, 0), "{\"seq\":1}\n") == 0); /* oldest first */
+    CHECK(strcmp(lg_bridge_recent_get(&g_recent, 2), "{\"seq\":3}\n") == 0);
+    CHECK(lg_bridge_recent_get(&g_recent, 3) == NULL);
+
+    /* Full: the oldest lines are overwritten, the newest LG_BRIDGE_RECENT are kept in order. */
+    for (i = 3; i < LG_BRIDGE_RECENT + 8; i++) {
+        (void)snprintf(line, sizeof line, "{\"seq\":%u}\n", (unsigned)(i + 1));
+        lg_bridge_recent_push(&g_recent, line);
+    }
+    CHECK(lg_bridge_recent_select(&g_recent, 100000) == LG_BRIDGE_RECENT);
+    (void)snprintf(line, sizeof line, "{\"seq\":%u}\n", 9u);
+    CHECK(strcmp(lg_bridge_recent_get(&g_recent, 0), line) == 0);
+    (void)snprintf(line, sizeof line, "{\"seq\":%u}\n", (unsigned)(LG_BRIDGE_RECENT + 8));
+    CHECK(strcmp(lg_bridge_recent_get(&g_recent, LG_BRIDGE_RECENT - 1), line) == 0);
+
+    /* A byte budget keeps the newest lines that fit (the replay must never overflow a client buffer). */
+    one = strlen(lg_bridge_recent_get(&g_recent, LG_BRIDGE_RECENT - 1));
+    CHECK(lg_bridge_recent_select(&g_recent, 5 * one) == 5);
+    CHECK(lg_bridge_recent_select(&g_recent, 5 * one + 1) == 5);
+    CHECK(lg_bridge_recent_select(&g_recent, one - 1) == 0);
+    CHECK(lg_bridge_recent_select(&g_recent, 0) == 0);
+
+    /* A line longer than a slot is not stored half (a broken JSON line would reach the browsers). */
+    {
+        static char big[LG_BRIDGE_LINE_MAX + 10];
+
+        memset(big, 'x', sizeof big - 1);
+        big[sizeof big - 1] = '\0';
+        lg_bridge_recent_init(&g_recent);
+        lg_bridge_recent_push(&g_recent, big);
+        CHECK(lg_bridge_recent_select(&g_recent, 100000) == 0);
+    }
+}
+
 int main(void) {
+    test_recent();
     test_kv();
     test_state();
     test_events();
