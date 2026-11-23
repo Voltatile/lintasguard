@@ -29,12 +29,16 @@ $(BUILD)/host/%: tests/scenario/%.c $(CORE_SRC) $(HDRS)
 	@mkdir -p $(BUILD)/host
 	$(CC_HOST) $(CFLAGS) $(CORE_INC) $(filter %.c,$^) -o $@
 
-# C unit tests and replays, the static no-gate check of lg-bridge, and the host Python tests (when Python is present).
+# C unit tests and replays, the static no-gate check of lg-bridge (and its self-test), and the host Python
+# tests. Python is python or python3; without either the Python tests are reported as SKIP, not silently.
 test: host
 	@rc=0; for t in $(UNIT_BIN); do ./$$t || rc=1; done; \
 	sh tests/static/check_bridge_no_gate.sh || rc=1; \
-	if command -v python >/dev/null 2>&1 && [ -d tests/host ]; then \
-	  if python -m unittest discover -s tests/host -p 'test_*.py' -q >build/host/pytest.log 2>&1; \
+	sh tests/static/test_check_bridge_no_gate.sh || rc=1; \
+	py=""; for c in python python3; do command -v $$c >/dev/null 2>&1 && { py=$$c; break; }; done; \
+	if [ -z "$$py" ]; then echo "SKIP: host python tests (no python or python3)"; \
+	elif [ -d tests/host ]; then \
+	  if $$py -m unittest discover -s tests/host -p 'test_*.py' -q >build/host/pytest.log 2>&1; \
 	  then echo "PASS: host python tests"; else cat build/host/pytest.log; echo "FAIL: host python tests"; rc=1; fi; \
 	fi; exit $$rc
 
@@ -89,7 +93,7 @@ $(BUILD)/target/lg-controller: $(wildcard target/lg-controller/*.c) core/control
 $(BUILD)/target/lg-supervisor: $(wildcard target/lg-supervisor/*.c) core/supervisor_logic.c $(HDRS)
 	$(call qcc_build,-lslog2)
 
-$(BUILD)/target/lg-bridge: $(wildcard target/lg-bridge/*.c) core/bridge_proto.c core/json_mini.c core/metrics.c core/gate_model.c $(HDRS)
+$(BUILD)/target/lg-bridge: $(wildcard target/lg-bridge/*.c) core/bridge_proto.c core/json_mini.c core/metrics.c $(HDRS)
 	$(call qcc_build,-lslog2 -lsocket)
 
 $(BUILD)/target/lg-meter: $(wildcard target/tools/lg-meter/*.c) core/metrics.c core/gate_model.c $(HDRS)
