@@ -1,0 +1,131 @@
+# python tests/host/bridge_check.py 192.168.56.102, 2026-11-23, binaries of 30a0c3a (lg-bridge unchanged since)
+bridge_check: target 192.168.56.102:5555, case bridge_check west/a stuck-clear 10000 50000 145000 3 2 MISSED_TRAIN sensor_faults.json
+PASS: the case booted a fresh system (level 0, gate UP) within 60 s
+PASS: state lines arrive about every 100 ms (3 s: 28, want at least 20)
+PASS: subscribe is acknowledged
+PASS: station_departure is acknowledged
+PASS: rejected with an error: gate command (unknown_kind)
+PASS: rejected with an error: controller command (unknown_kind)
+PASS: rejected with an error: garbage (not_json)
+PASS: rejected with an error: not an object (not_object)
+PASS: rejected with an error: oversized line (too_long)
+PASS: rejected with an error: extra field on station_departure (extra_field)
+PASS: rejected with an error: bad direction (bad_field)
+PASS: rejected with an error: negative eta (bad_field)
+PASS: bridge in_rejected rose by exactly 8 (got 8)
+PASS: bridge in_station rose by 1 (got 1)
+PASS: gate rejected counter unchanged (0 -> 0)
+PASS: gate target equals the controller target (gate UP, controller UP)
+PASS: a ninth client is refused (closed within 3 s) while eight are connected
+PASS: the client that never reads is dropped (dropped_slow rose, after 20 s)
+PASS: the reading client kept getting state lines meanwhile (largest gap 0.11 s, want < 2 s)
+PASS: every line from the bridge is JSON (1668 lines, 0 bad)
+PASS: state lines carry trains with positions (trains seen [1, 2, 3])
+PASS: a level line 0 -> 2 (SENSOR_FAILED) arrived
+PASS: a notify line for west/a with diag MISSED_TRAIN arrived
+PASS: metric lines arrived (384)
+PASS: on the target: wrong_side_events is 0 (lg-meter)
+PASS: the target case passed (exit 0)
+--- target case output:
+=== case bridge_check: sensor west/a fault stuck-clear inject 10000 clear 50000 end 145000 scenario sensor_faults.json
+RESULT case=bridge_check
+PASS: boot: level 0 and gate UP within 25 s
+RESULT controller_pid=464199715
+RESULT boot_plant_ms=9279
+PASS: the boot release came before the injection time
+PASS: inject: lgctl sensor west/a fault stuck-clear (exit 0)
+RESULT inject_plant_ms=10070
+PASS: clear: lgctl sensor west/a fault none (exit 0)
+RESULT clear_plant_ms=50121
+RESULT end_plant_ms=145059
+--- lg-meter output (exit 0):
+key,value
+plant_end_ms,145001
+meter_samples,13571
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,13571
+meter_coverage_pct,100
+meter_max_gap_ms,30
+meter_max_sample_gap_ms,30
+trains,3
+trains_without_warning,0
+warning_count,3
+warning_max_ms,18170
+warning_avg_ms,15823
+closure_count,3
+closure_max_ms,22629
+closure_avg_ms,17319
+closed_ms,75972
+observed_ms,135700
+closure_ms_per_hour,2015469
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,141
+controller_cycles,3
+controller_level_end,0
+--- /dev/lg/events:
+seq=1 t_ms=62954818 kind=LEVEL severity=INFO from=4 to=0 reason=2
+seq=2 t_ms=62974978 kind=NOTIFY severity=URGENT to=maintenance sensor=west/a diag=MISSED_TRAIN level=0
+seq=3 t_ms=62974978 kind=LEVEL severity=WARNING from=0 to=2 reason=4
+seq=4 t_ms=63053494 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=2
+seq=5 t_ms=63083494 kind=LEVEL severity=INFO from=2 to=0 reason=12
+--- /dev/lg/controller:
+level=0 boot_lock=0 gate=UP gate_silent=0 target=UP lights=0 bell=0 active=0,0 activations=3 cycles=3 ticks=14500 late_ticks=141 samples=86933 rejected=0 gate_replies=14499 gate_timeouts=0 sup_armed=1 sup_silent=0 proc_status_rx=1306 proc_status_rejected=0 proc_bad=0x0 guard_acks=0 tickets=1 sensor_failed=0x0 events=5 unmet=0x0,0x0 stalls=0 ignored_ticks=9 gate_connects=1 gate_dropped=0 guards=1 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+--- sensors:
+west/a: occupied=0 quality=97 axles=16 raw=206 fault=NONE seq=14513 tick=14513
+west/b: occupied=0 quality=97 axles=16 raw=199 fault=NONE seq=14517 tick=14517
+west/island: occupied=0 quality=97 axles=16 raw=195 fault=NONE seq=14514 tick=14514
+east/a: occupied=0 quality=97 axles=8 raw=177 fault=NONE seq=14518 tick=14518
+east/b: occupied=0 quality=97 axles=8 raw=178 fault=NONE seq=14519 tick=14519
+east/island: occupied=0 quality=97 axles=8 raw=190 fault=NONE seq=14515 tick=14515
+--- supervisor row of sensor/west/a:
+proc=sensor/west/a id=3 state=RUNNING phase=RUNNING pid=464199708 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=4839 hb_ignored=0
+RESULT level_trail=4>0,0>2,2>0,
+RESULT max_level=2
+RESULT level_up_plant_ms=25441
+RESULT level0_plant_ms=133979
+RESULT recovery_inject_ms=123909
+RESULT recovery_clear_ms=83858
+RESULT supervisor_recovery_ms=0
+RESULT supervisor_restarts=0
+RESULT tickets=1
+RESULT events=5
+RESULT sensor_failed=0x0
+RESULT unmet=0x0,0x0
+RESULT late_ticks=141
+RESULT ticks=14510
+RESULT trains=3
+RESULT trains_without_warning=0
+RESULT closure_count=3
+RESULT closure_max_ms=22629
+RESULT closure_ms_per_hour=2015469
+RESULT warning_avg_ms=15823
+RESULT wrong_side_events=0
+RESULT wrong_side_ticks=0
+RESULT meter_coverage_pct=100
+RESULT meter_max_gap_ms=30
+RESULT controller_cycles=3
+PASS: wrong_side_events is 0
+PASS: wrong_side_ticks is 0
+PASS: lg-meter observed the whole run and saw no wrong side (exit 0)
+PASS: every train reached the island with the lights on (trains_without_warning 0)
+PASS: trains seen by the meter: 3
+PASS: every train had a gate closure (closure_count at least 3)
+PASS: the controller was not restarted (same pid at the end)
+PASS: highest level after the boot release is 2 (never 3 or 4)
+PASS: an URGENT ticket for west/a with diag MISSED_TRAIN
+PASS: exactly one ticket (tickets 1)
+PASS: the level trail is boot release, down to 2, back to 0
+PASS: level 2 came after the injection (watched from the boot release)
+PASS: level 0 again before the end (recovery recorded)
+PASS: back to level 0 not before T_stable after the fault ended
+PASS: the sensor process was not restarted (total 0)
+PASS: end: level 0
+PASS: end: no sensor FAILED (sensor_failed 0x0)
+PASS: end: gate UP with the lights off
+PASS: the gate watchdog never tripped
+RESULT checks=23 failed=0
+PASS: case bridge_check (23 checks)
+--- stream summary: kinds {"level": 2, "metric": 384, "notify": 2, "state": 1280}
+=== RESULT: 26 checks, 0 failed
