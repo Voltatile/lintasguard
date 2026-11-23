@@ -275,6 +275,9 @@ static void jw_str(jw_t *w, const char *key, const char *v) {
         if (c < 0x20) {
             continue;
         }
+        if (c >= 0x80) {
+            c = '?'; /* the line stays ASCII: a raw byte here would not be valid UTF-8 for the host */
+        }
         if (c == '"' || c == '\\') {
             t[n++] = '\\';
         }

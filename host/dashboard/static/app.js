@@ -43,7 +43,8 @@ function updateHeader() {
 // Shown as plant (scenario) time, worked out from the latest state line, which carries both clocks.
 function eventTime(ev) {
   if (typeof ev.t !== "number") return "";
-  if (state && typeof state.t === "number" && typeof state.plant_ms === "number") {
+  // Only with a fresh plant reading; after a plant restart an old event may still show a wrong plant time.
+  if (state && state.plant_ok && typeof state.t === "number" && typeof state.plant_ms === "number") {
     const s = state.plant_ms / 1000 + (ev.t - state.t);
     if (s >= 0) return "plant " + s.toFixed(1) + " s";
   }

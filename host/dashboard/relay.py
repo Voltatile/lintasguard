@@ -20,6 +20,10 @@ QUEUE_MAX = 400       # lines buffered per browser; a slow browser loses the old
 MAX_LINE = 64 * 1024  # a longer line from the bridge is dropped
 
 
+def _reject_constant(name: str) -> Any:
+    raise ValueError(f"non-standard JSON constant {name}")
+
+
 class Relay:
     def __init__(self, host: str, port: int = 5555, reconnect_s: float = 1.0) -> None:
         self.host = host
@@ -88,8 +92,9 @@ class Relay:
             self.bad_lines += 1
             return False
         try:
-            obj = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+            # NaN / Infinity are accepted by json.loads but not by a browser's JSON.parse: a bad line.
+            obj = json.loads(raw.decode("utf-8"), parse_constant=_reject_constant)
+        except (UnicodeDecodeError, ValueError):
             self.bad_lines += 1
             return False
         if not isinstance(obj, dict) or not isinstance(obj.get("kind"), str):
