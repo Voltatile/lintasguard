@@ -190,7 +190,17 @@ lg_mode_result_t lg_mode_step(lg_mode_t *m, const lg_mode_cfg_t *cfg, const lg_m
             m->guard_latched = 1;
         }
 
-        boot_ok = m->boot_lock && required == LG_LEVEL_NORMAL;
+        /* The boot release ignores lg-bridge (no safety role, reachable from the network): a bridge that
+         * cannot start must not keep the gate down until a guard comes. The release lands on the full
+         * requirement, so a bridge that is down still gives level 1 after the boot (Step 10 review M3). */
+        if (m->boot_lock) {
+            lg_mode_in_t no_bridge = *in;
+
+            no_bridge.proc_state[LG_PROC_BRIDGE] = LG_PROC_RUNNING;
+            boot_ok = lg_mode_required(&no_bridge, 0) == LG_LEVEL_NORMAL;
+        } else {
+            boot_ok = 0;
+        }
         release = boot_ok || m->guard_latched;
         kind = boot_ok ? 1 : 2;
         need = boot_ok ? cfg->t_boot_stable_ms : cfg->t_stable_ms;

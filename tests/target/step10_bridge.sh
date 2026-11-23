@@ -11,7 +11,8 @@
 # Parts: 1 boot (priority 10 on every thread, port 5555, /dev/lg/bridge read only), 2 kill the bridge
 # once (restart, level 1 until T_stable, gate untouched), 3 kill the bridge until its restart budget is
 # spent (DEAD bridge = level 1 only, gate untouched), 4 controller stopped (SIGSTOP): the bridge keeps
-# beating and is not restarted.
+# beating and is not restarted, 5 boot with a bridge that cannot start (the boot release ignores the
+# bridge: level 1, gate opens; review finding M3).
 
 BIN=/tmp/lintasguard
 fails=0
@@ -180,7 +181,7 @@ check "kill 3: replaced" kill_and_wait_new
 check "kill 4 accepted by lgctl" [ "$(exit_code_of $BIN/lgctl kill bridge)" = "0" ]
 check "budget spent (3 per 10 s): the bridge is DEAD within 5 s" wait_sup bridge state DEAD 50
 check "no lg-bridge process is left" [ -z "$(pid_of lg-bridge)" ]
-check "a dead bridge raises the level to 1 only" wait_eq cfield level 1 30
+check "a dead bridge: level 1 within 3 s" wait_eq cfield level 1 30
 check "level 1 holds and the gate stays UP and dark for 10 s" level_and_gate_hold 1 10
 echo "--- /dev/lg/supervisor:"
 cat /dev/lg/supervisor
@@ -203,6 +204,23 @@ check "snapshots continue with the new controller (2 s: at least 10 more)" at_le
 echo "--- /dev/lg/bridge:"
 cat /dev/lg/bridge
 
+echo "=== part 5: boot with a bridge that cannot start (port 5555 and /dev/lg/bridge already taken)"
 cleanup
+sleep 1.5
+$BIN/lg-bridge -p 5555 </dev/null >/tmp/blocker.log 2>&1 &
+BLOCKER=$!
+check "a stand-alone lg-bridge holds port 5555 and /dev/lg/bridge" wait_for /dev/lg/bridge 50
+start_sup test_idle.json
+check "the supervisor's bridge cannot start: DEAD within 30 s (restart budget spent)" wait_sup bridge state DEAD 300
+check "the boot release still comes (bridge ignored for the boot), level 1 within 30 s" wait_eq cfield level 1 300
+check "the level change is 4 -> 1, reason 2 (boot released)" \
+    grep -q 'kind=LEVEL severity=INFO from=4 to=1 reason=2' /dev/lg/events
+check "the gate opens: UP within 10 s" wait_eq gfield state UP 100
+check "level 1 holds and the gate stays UP and dark for 5 s" level_and_gate_hold 1 5
+kill -9 "$BLOCKER" 2>/dev/null
+
+cleanup
+# No train runs in these parts (test_idle.json): the wrong-side checks with trains are in
+# tests/host/bridge_check.py (lg-meter during sensor_faults.json) and in the campaign.
 echo "=== RESULT: $checks checks, $fails failed"
 [ $fails -eq 0 ]

@@ -394,10 +394,60 @@ static void test_time_wrap(void) {
     CHECK(step(&m, &in, t0 + cfg.t_boot_stable_ms) == LG_LEVEL_NORMAL); /* wraps past zero */
 }
 
+/* Review finding M3 (Step 10): lg-bridge has no safety role and is reachable from the network; a bridge
+ * that cannot start (port taken, binary missing) must not keep the boot lock (gate DOWN until a guard).
+ * The boot release ignores the bridge and lands on the real requirement: level 1 for a bridge down. */
+static void test_bridge_does_not_hold_the_boot(void) {
+    lg_mode_t m;
+    lg_mode_in_t in;
+    lg_mode_result_t r;
+    uint8_t states[2] = {LG_PROC_DEAD, LG_PROC_RESTARTING};
+    int k;
+
+    for (k = 0; k < 2; k++) {
+        lg_mode_in_all_healthy(&in);
+        in.proc_state[LG_PROC_BRIDGE] = states[k];
+        lg_mode_init(&m, 0);
+        CHECK(step(&m, &in, 0) == LG_LEVEL_FAILSAFE);
+        CHECK(step(&m, &in, cfg.t_boot_stable_ms - 1) == LG_LEVEL_FAILSAFE);
+        r = lg_mode_step(&m, &cfg, &in, cfg.t_boot_stable_ms);
+        CHECK(r.changed && r.to == LG_LEVEL_EARLY_WARNING && r.reason == LG_REASON_BOOT_RELEASED);
+        CHECK(m.boot_lock == 0);
+        /* The bridge comes back: level 0 after t_stable, as for any level 1. */
+        in.proc_state[LG_PROC_BRIDGE] = LG_PROC_RUNNING;
+        CHECK(step(&m, &in, cfg.t_boot_stable_ms + 1) == LG_LEVEL_EARLY_WARNING);
+        CHECK(step(&m, &in, cfg.t_boot_stable_ms + 1 + cfg.t_stable_ms) == LG_LEVEL_NORMAL);
+    }
+
+    /* Only the bridge is ignored: another level-1 cause (a WARNING verdict) still holds the boot lock. */
+    lg_mode_in_all_healthy(&in);
+    in.proc_state[LG_PROC_BRIDGE] = LG_PROC_DEAD;
+    in.verdict[COMP(LG_DIR_WEST, LG_SENSOR_A)] = LG_VERDICT_WARNING;
+    lg_mode_init(&m, 0);
+    (void)step(&m, &in, 0);
+    CHECK(step(&m, &in, 10 * cfg.t_stable_ms) == LG_LEVEL_FAILSAFE);
+
+    /* A bridge down together with a real problem: the boot stays locked. */
+    lg_mode_in_all_healthy(&in);
+    in.proc_state[LG_PROC_BRIDGE] = LG_PROC_DEAD;
+    in.verdict[COMP(LG_DIR_WEST, LG_SENSOR_A)] = LG_VERDICT_FAILED;
+    lg_mode_init(&m, 0);
+    (void)step(&m, &in, 0);
+    CHECK(step(&m, &in, 10 * cfg.t_stable_ms) == LG_LEVEL_FAILSAFE);
+
+    /* A restarted controller (no boot lock) still needs a guard, bridge or not. */
+    lg_mode_in_all_healthy(&in);
+    in.proc_state[LG_PROC_BRIDGE] = LG_PROC_DEAD;
+    lg_mode_init_restarted(&m, 0);
+    (void)step(&m, &in, 0);
+    CHECK(step(&m, &in, 10 * cfg.t_stable_ms) == LG_LEVEL_FAILSAFE);
+}
+
 int main(void) {
     cfg = lg_mode_cfg_default();
     test_required();
     test_boot();
+    test_bridge_does_not_hold_the_boot();
     test_escalation_and_deescalation();
     test_descent();
     test_hysteresis();
