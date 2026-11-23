@@ -1,6 +1,6 @@
 # Evidence status
 
-Updated: 2026-11-22 (Step 9). Commit: see `git log` (first commit = Step 1 and Step 2).
+Updated: 2026-11-23 (Step 10). Commit: see `git log` (first commit = Step 1 and Step 2).
 
 ## Step 1: Accounts and tools
 
@@ -210,6 +210,32 @@ Known gaps:
 - The campaign passed in groups and with one retry, not in one uninterrupted run; a quiet host or more free RAM would show how often the remaining failure (sensors and gate silent at the same moment while the controller keeps ticking, possibly one of the 2 vCPUs held by the host) happens.
 - An island that is blind 190 ms out of every 200 ms is never FAILED (no ticket); left for `lg-health` in Step 11.
 - Stuck rules assume a single fault; a restarted controller starts with empty latches, tickets and event ring (Decisions log).
+
+## Step 10: bridge and dashboard
+
+Branch `step-10-bridge`. Final code commit `f2dfe83` (Step 10 commits `a40da97` to `f2dfe83`); the final VM runs below use `make -B target` binaries of `f2dfe83`, the only uncommitted files were the evidence files themselves. The host had 1.8 GB of free RAM at the start of the final runs.
+
+| Check | Result | Verified where |
+|---|---|---|
+| Portable protocol (`core/bridge_proto.c`): device-text parsers, NDJSON writers, inbound whitelist, recent-event ring, event tracker across controller restarts, null for unknown level and gate | `test_bridge_proto`, `test_bridge_proto_edge` (worst-case state line 937 of 1024 bytes), `test_plant_positions`: pass | Windows host |
+| Boot release ignores lg-bridge (review M3, decided with the user) | `test_bridge_does_not_hold_the_boot`: pass (fails on the code before the change) | Windows host |
+| Static check: no gate path in lg-bridge (rule 4) | `check_bridge_no_gate` (5 files: bridge sources, linked core sources, included target helpers; `lg_heartbeat.h` only opens the supervisor) and its self-test (13 planted forbidden calls, all caught): pass | Windows host |
+| Dashboard relay (`host/dashboard/relay.py`) | `tests/host/test_relay.py`, `test_relay_edge.py` (34 tests: dedup, NaN/Infinity rejected, slow browser, Origin check): pass | Windows host |
+| `make test`, `make target` | 36 PASS lines, 0 FAIL; target builds with `-Werror` and no warnings | Windows host, SDP 8.0 |
+| `tests/target/step10_bridge.sh` | 38 checks, 0 failed: priority 10 on every bridge thread, port 5555, `/dev/lg/bridge` read only; kill: restart, level 1 until T_stable, gate UP and dark; four kills: DEAD, level 1 only; controller stopped: the bridge keeps its pid and beats; port taken at boot: DEAD, boot release to level 1, gate UP | **QNX 8.0 VM**, `evidence/step10_bridge_target.txt` (binaries with the review fixes, before `make -B`; the Makefile change after it only drops the unused `gate_model.c` from the bridge link) |
+| `tests/host/bridge_check.py` (host against the VM, during a stuck-clear west/a case with lg-meter) | 29 checks, 0 failed: state lines every ~100 ms with train positions; level 0 -> 2 and MISSED_TRAIN on the stream; a late client gets them replayed once; subscribe and station_departure acknowledged; 8 forbidden inbound lines (gate command, guard ack, garbage, oversized, extra field, ...) answered with `error`, bridge `in_rejected` +8, gate `rejected` unchanged, gate target equals controller target; ninth client refused; a client that never reads dropped after 20 s while a reading client's largest gap was 0.11 s; wrong_side_events 0 | **QNX 8.0 VM** + Windows host, `evidence/step10_bridge_check.txt` |
+| **README check: a scenario on QNX is visible live in the browser** | yes: `sensor_faults.json` with stuck-clear on west/a, trains moving, level badge 0 then 2, MISSED_TRAIN ticket in the inbox; a dashboard opened after a level change still shows it, with plant time | **QNX 8.0 VM** + Chrome on the host, `evidence/step10_dashboard/*.jpg` (screenshots of binaries `30a0c3a` and `a6a204f`; the later "unknown" badge of review M1 was not captured) |
+| Campaign `sensor_faults.json` (regression with the bridge running) | all 7 cases pass on `f2dfe83`, no retry (5 groups, one runner call each): wrong-side 0 everywhere, recovery from injection 123885 / 123872 / 193587 / 125552 / 30154 / 30235 ms, close to Step 9 | **QNX 8.0 VM**, `evidence/step10_campaign/f2dfe83/` |
+| Regression step05 to step08 with the bridge (before the review fixes) | step05_gate 36, step05_priority 3, step06_channels 10, step06_sensors 82, step07_controller 56, step08_supervisor 152 checks, 0 failed | **QNX 8.0 VM**, `evidence/step0*_30a0c3a.txt` |
+| Regression step07 and step08 on the final binaries (they cover the boot release changed by M3 and the supervisor with ten processes) | step07_controller 56, step08_supervisor 152 checks, 0 failed, wrong_side_events 0 | **QNX 8.0 VM**, `evidence/step07_controller_f2dfe83.txt`, `evidence/step08_supervisor_f2dfe83.txt` |
+
+Earlier runs, kept as history: `evidence/step10_campaign/5da0006/all.*` (one runner call for all 7 cases on the bridge before the review fixes: 5 passed; `stuck_clear_east_b` went to level 4 when both island sensors looked SILENT for about 80 ms at the same moment, and the next case did not get its boot release after three sensors looked STALE at once; wrong-side 0 in both; host free RAM about 1.1 GB) and `evidence/step10_campaign/1a659d4/retry.*` (those two cases passed when run again).
+
+Known gaps:
+- The two failures of the first campaign run match the Step 9 pattern (several sensors silent or stale at the same moment while the controller keeps ticking, a VM stall); the reviewer found no mechanism by which the bridge causes SILENT or STALE. Not proven either way. One suspicion is recorded: every bridge read of `/dev/lg/plant` runs the plant's single thread at priority 10 (default channel), which could delay the sensors' truth queries (they would show quality 0, not SILENT); the sensors' `plant_fail` counters were not compared.
+- No client authentication on TCP 5555 (any host on the VM network can take the 8 slots); Step 13.
+- Dashboard metrics restart with a restarted bridge (display only); after a plant restart an old replayed event may show a wrong plant time.
+- `station_departure` is acknowledged and counted only; forwarding to `lg-schedule` is Step 12.
 
 ## Known gaps
 
