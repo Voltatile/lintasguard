@@ -179,6 +179,17 @@ class DedupTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(relay._seen), 0)
         self.assertEqual(len(relay.history), 0)
 
+    async def test_lead_time_event_is_kept_once(self) -> None:
+        # Step 11: the controller's lead_time_ms metric carries a component and a seq; a replay after a
+        # reconnect must not show it twice, and a dashboard opened later still gets it in the history.
+        relay, q = self.make()
+        line = b'{"t":5.0,"seq":7,"kind":"metric","name":"lead_time_ms","component":"west/a","value":20600}'
+        for _ in range(3):
+            relay.handle_line(line)
+        self.assertEqual(len(drain(q)), 1)
+        self.assertEqual(len(relay.history), 1)
+        self.assertEqual(relay.metrics["lead_time_ms"], 20600)
+
 
 class LineHandlingTests(unittest.IsolatedAsyncioTestCase):
     async def test_line_size_limit_is_exact(self) -> None:

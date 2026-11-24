@@ -29,10 +29,23 @@ typedef struct {
     uint32_t ticks; /* model steps executed */
     uint32_t sched_policy;   /* policy of the serving thread right now (SCHED_FIFO = 1) */
     uint32_t sched_priority; /* priority of the serving thread right now */
+    /* Step 11, for lg-health. */
+    uint32_t moves_done;   /* completed movements */
+    uint32_t last_peak_ma; /* peak motor current of the last completed movement */
+    uint32_t battery_mv;
+    uint32_t battery_drain_mv_s; /* injected drain, 0 = charger working */
 } lg_gate_stats_t;
+
+/* Backup battery fault injection: drain in mV per second, 0 = cleared (needs a descriptor opened for
+ * writing, like DCMD_LG_GATE_FAULT). */
+typedef struct {
+    uint32_t drain_mv_s;
+    uint32_t reserved;
+} lg_gate_battery_req_t;
 
 #define DCMD_LG_GATE_FAULT __DIOT(_DCMD_MISC, 0x40, lg_gate_fault_req_t)
 #define DCMD_LG_GATE_STATS __DIOF(_DCMD_MISC, 0x41, lg_gate_stats_t)
+#define DCMD_LG_GATE_BATTERY __DIOT(_DCMD_MISC, 0x42, lg_gate_battery_req_t)
 
 /* /dev/lg/sensor/<dir>/<id> */
 typedef struct {
@@ -57,9 +70,27 @@ typedef struct {
     uint32_t sched_priority;
     uint32_t worker_policy;  /* of the worker thread, as it was at its latest tick */
     uint32_t worker_priority;
+    /* Step 11: cumulative sample statistics (lg_sensor_acc_t) for lg-health. */
+    uint64_t dev_sum;      /* sum of |raw - nominal level of the reading| */
+    uint32_t dev_count;
+    uint32_t acc_ticks;    /* ticks of the worker (skipped periods of a stall are not counted) */
+    uint32_t acc_no_sample;
+    uint32_t blind;        /* samples with quality 0 */
+    uint32_t rise_count;
+    uint32_t last_rise_ms; /* CLOCK_MONOTONIC ms of the latest clear -> occupied reading */
+    uint32_t last_fall_ms;
+    uint32_t reserved;
 } lg_sensor_stats_t;
 
 #define DCMD_LG_SENSOR_FAULT __DIOT(_DCMD_MISC, 0x50, lg_sensor_fault_req_t)
 #define DCMD_LG_SENSOR_STATS __DIOF(_DCMD_MISC, 0x51, lg_sensor_stats_t)
+
+/* /dev/lg/health (lg-health, Step 11) */
+typedef struct {
+    uint32_t comp; /* lg_component_t to forget (a repair was done); LG_COMP_GATE also resets the battery */
+    uint32_t reserved;
+} lg_health_reset_req_t;
+
+#define DCMD_LG_HEALTH_RESET __DIOT(_DCMD_MISC, 0x60, lg_health_reset_req_t)
 
 #endif

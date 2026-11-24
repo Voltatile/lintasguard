@@ -1,13 +1,19 @@
 /*
  * lgctl: command line control of LintasGuard (README 4.2, 10.2).
  *
- *   lgctl kill sensor <dir>/<id> | gate | controller | plant | bridge
+ *   lgctl kill sensor <dir>/<id> | gate | controller | plant | bridge | health
  *                                      SIGKILL the process the supervisor started (pid from
  *                                      /dev/lg/supervisor): what a crash looks like to the system
  *   lgctl guard-ack --id <guard>       acknowledge level 4 (message to lg/controller). The guard id
  *                                      must be in the "guards" list of the crossing config; the PIN
  *                                      is NOT checked yet (Step 13)
  *   lgctl status                       print /dev/lg/controller and /dev/lg/supervisor
+ *   lgctl health                       print /dev/lg/health (scores, verdicts, diagnoses, trends)
+ *   lgctl health reset <comp>          forget what lg-health learned about one component after a
+ *                                      repair: west/a ... east/island, gate (also the battery), battery
+ *   lgctl gate fault <mode> [pct]      gate fault injection: none slow high-current stuck-up
+ *                                      stuck-down (slow and high-current need a factor in percent)
+ *   lgctl battery drain <mV/s>         backup battery drain (0 = charger working again)
  *
  *   lgctl sensor <dir>/<id> [fault] <mode> [param]    inject a fault through devctl
  *   lgctl sensor <dir>/<id> stats                     print the counters of the sensor
@@ -36,6 +42,7 @@
 #include <unistd.h>
 
 #include "lg_devctl.h"
+#include "lg_health.h"
 #include "lg_names.h"
 #include "lg_proto.h"
 #include "lg_sensor_model.h"
@@ -49,9 +56,12 @@ static int usage(void) {
     (void)fprintf(stderr,
                   "usage: lgctl sensor <dir>/<id> [fault] <mode> [param]\n"
                   "       lgctl sensor <dir>/<id> stats\n"
-                  "       lgctl kill sensor <dir>/<id> | gate | controller | plant | bridge\n"
+                  "       lgctl kill sensor <dir>/<id> | gate | controller | plant | bridge | health\n"
                   "       lgctl guard-ack --id <guard>\n"
                   "       lgctl status\n"
+                  "       lgctl health [reset <comp>]\n"
+                  "       lgctl gate fault <none|slow|high-current|stuck-up|stuck-down> [pct]\n"
+                  "       lgctl battery drain <mV/s>\n"
                   "  dir west|east, id a|b|island\n"
                   "  mode none noise dropout stuck-occupied stuck-clear delay drift hang crash\n");
     return 2;
@@ -144,13 +154,16 @@ static int do_stats(const char *path) {
     }
     printf("stats: ticks=%u samples_sent=%u no_sample=%u send_fail=%u no_controller=%u plant_fail=%u "
            "overruns=%u timeouts=%u connects=%u fault=%s fault_param=%u seq=%u sched_policy=%u "
-           "sched_priority=%u worker_policy=%u worker_priority=%u\n",
+           "sched_priority=%u worker_policy=%u worker_priority=%u dev_sum=%llu dev_count=%u acc_ticks=%u "
+           "acc_no_sample=%u blind=%u rise_count=%u last_rise_ms=%u last_fall_ms=%u\n",
            (unsigned)st.ticks, (unsigned)st.samples_sent, (unsigned)st.no_sample,
            (unsigned)st.send_fail, (unsigned)st.no_controller, (unsigned)st.plant_fail,
            (unsigned)st.overruns, (unsigned)st.timeouts, (unsigned)st.connects,
            lg_sensor_fault_name((uint8_t)st.fault), (unsigned)st.fault_param,
            (unsigned)st.seq, (unsigned)st.sched_policy, (unsigned)st.sched_priority,
-           (unsigned)st.worker_policy, (unsigned)st.worker_priority);
+           (unsigned)st.worker_policy, (unsigned)st.worker_priority, (unsigned long long)st.dev_sum,
+           (unsigned)st.dev_count, (unsigned)st.acc_ticks, (unsigned)st.acc_no_sample, (unsigned)st.blind,
+           (unsigned)st.rise_count, (unsigned)st.last_rise_ms, (unsigned)st.last_fall_ms);
     return 0;
 }
 
@@ -222,7 +235,8 @@ static int cmd_kill(int argc, char **argv) {
         }
         (void)snprintf(name, sizeof name, "sensor/%s", argv[3]);
     } else if (argc == 3 && (strcmp(argv[2], "gate") == 0 || strcmp(argv[2], "controller") == 0 ||
-                             strcmp(argv[2], "plant") == 0 || strcmp(argv[2], "bridge") == 0)) {
+                             strcmp(argv[2], "plant") == 0 || strcmp(argv[2], "bridge") == 0 ||
+                             strcmp(argv[2], "health") == 0)) {
         (void)snprintf(name, sizeof name, "%s", argv[2]);
     } else {
         return usage();
@@ -321,6 +335,124 @@ static int cmd_status(int argc) {
     return bad;
 }
 
+/* A devctl with a request structure on a descriptor opened for writing. Returns an exit code. */
+static int devctl_write(const char *path, int dcmd, void *req, size_t len, const char *what) {
+    int fd = open(path, O_RDWR);
+    int rc;
+
+    if (fd == -1) {
+        (void)fprintf(stderr, "open(%s) failed: %s\n", path, strerror(errno));
+        return errno == EACCES || errno == EPERM ? 4 : 1;
+    }
+    rc = devctl(fd, dcmd, req, len, NULL);
+    (void)close(fd);
+    if (rc != EOK) {
+        (void)fprintf(stderr, "devctl %s failed: %s\n", what, strerror(rc));
+        return rc == EINVAL ? 3 : (rc == EPERM ? 4 : 1);
+    }
+    return 0;
+}
+
+static int parse_u32(const char *s, uint32_t *out) {
+    char *end = NULL;
+    unsigned long v;
+
+    if (s == NULL || *s == '\0') {
+        return -1;
+    }
+    v = strtoul(s, &end, 10);
+    if (*end != '\0' || v > 0xFFFFFFFFul) {
+        return -1;
+    }
+    *out = (uint32_t)v;
+    return 0;
+}
+
+static int cmd_health(int argc, char **argv) {
+    char text[4096];
+    lg_health_reset_req_t req;
+    int comp = -1;
+    int k;
+
+    if (argc == 2) {
+        if (read_text("/dev/lg/health", text, sizeof text) < 0) {
+            return 1;
+        }
+        fputs(text, stdout);
+        return 0;
+    }
+    if (argc != 4 || strcmp(argv[2], "reset") != 0) {
+        return usage();
+    }
+    for (k = 0; k < LG_COMP_COUNT; k++) {
+        if (strcmp(argv[3], lg_health_comp_name((uint8_t)k)) == 0) {
+            comp = k;
+        }
+    }
+    if (comp < 0) {
+        (void)fprintf(stderr, "lgctl: unknown component '%s'\n", argv[3]);
+        return usage();
+    }
+    memset(&req, 0, sizeof req);
+    req.comp = (uint32_t)comp;
+    k = devctl_write("/dev/lg/health", DCMD_LG_HEALTH_RESET, &req, sizeof req, "HEALTH_RESET");
+    if (k == 0) {
+        printf("health of %s reset\n", argv[3]);
+    }
+    return k;
+}
+
+static int cmd_gate(int argc, char **argv) {
+    static const char *const modes[] = {"none", "slow", "high-current", "stuck-up", "stuck-down"};
+    lg_gate_fault_req_t req;
+    int mode = -1;
+    int k;
+
+    if (argc < 4 || argc > 5 || strcmp(argv[2], "fault") != 0) {
+        return usage();
+    }
+    for (k = 0; k < (int)(sizeof modes / sizeof modes[0]); k++) {
+        if (strcmp(argv[3], modes[k]) == 0) {
+            mode = k; /* the order of lg_gate_fault_t */
+        }
+    }
+    if (mode < 0) {
+        (void)fprintf(stderr, "lgctl: unknown gate mode '%s'\n", argv[3]);
+        return usage();
+    }
+    memset(&req, 0, sizeof req);
+    req.mode = (uint32_t)mode;
+    req.factor_pct = 100;
+    if ((mode == LG_GFAULT_SLOW || mode == LG_GFAULT_HIGH_CURRENT) != (argc == 5)) {
+        (void)fprintf(stderr, "lgctl: slow and high-current need a factor in percent, the others none\n");
+        return usage();
+    }
+    if (argc == 5 && parse_u32(argv[4], &req.factor_pct) != 0) {
+        (void)fprintf(stderr, "lgctl: bad factor '%s'\n", argv[4]);
+        return usage();
+    }
+    k = devctl_write(LG_DEV_GATE, DCMD_LG_GATE_FAULT, &req, sizeof req, "GATE_FAULT");
+    if (k == 0) {
+        printf("%s: fault %s factor=%u%% accepted\n", LG_DEV_GATE, argv[3], (unsigned)req.factor_pct);
+    }
+    return k;
+}
+
+static int cmd_battery(int argc, char **argv) {
+    lg_gate_battery_req_t req;
+    int k;
+
+    memset(&req, 0, sizeof req);
+    if (argc != 4 || strcmp(argv[2], "drain") != 0 || parse_u32(argv[3], &req.drain_mv_s) != 0) {
+        return usage();
+    }
+    k = devctl_write(LG_DEV_GATE, DCMD_LG_GATE_BATTERY, &req, sizeof req, "GATE_BATTERY");
+    if (k == 0) {
+        printf("%s: battery drain %u mV/s accepted\n", LG_DEV_GATE, (unsigned)req.drain_mv_s);
+    }
+    return k;
+}
+
 int main(int argc, char **argv) {
     char path[64];
     int a = 3;
@@ -337,6 +469,15 @@ int main(int argc, char **argv) {
     }
     if (argc >= 2 && strcmp(argv[1], "status") == 0) {
         return cmd_status(argc);
+    }
+    if (argc >= 2 && strcmp(argv[1], "health") == 0) {
+        return cmd_health(argc, argv);
+    }
+    if (argc >= 2 && strcmp(argv[1], "gate") == 0) {
+        return cmd_gate(argc, argv);
+    }
+    if (argc >= 2 && strcmp(argv[1], "battery") == 0) {
+        return cmd_battery(argc, argv);
     }
     if (argc < 4 || strcmp(argv[1], "sensor") != 0) {
         return usage();

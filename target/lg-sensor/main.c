@@ -92,6 +92,7 @@ static struct {
     uint32_t overruns;
     uint32_t timeouts;
 } g_stats;
+static lg_sensor_acc_t g_acc; /* sample statistics for lg-health (Step 11), under g_lock */
 
 /* A connection shared between the worker (uses it) and a connector thread (makes it). */
 typedef struct {
@@ -374,6 +375,7 @@ static void tick(uint64_t *prev_tick_ns) {
     } else {
         g_stats.no_sample++;
     }
+    lg_sensor_acc_step(&g_acc, now, have, &out);
     hung = g_model.fault == LG_SFAULT_HANG;
     (void)pthread_mutex_unlock(&g_lock);
 
@@ -598,6 +600,14 @@ static int io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_OCB_T *ocb)
         st.seq = g_seq;
         st.worker_policy = (uint32_t)g_worker_policy;
         st.worker_priority = (uint32_t)g_worker_prio;
+        st.dev_sum = g_acc.dev_sum;
+        st.dev_count = g_acc.dev_count;
+        st.acc_ticks = g_acc.ticks;
+        st.acc_no_sample = g_acc.no_sample;
+        st.blind = g_acc.blind;
+        st.rise_count = g_acc.rise_count;
+        st.last_rise_ms = g_acc.last_rise_ms;
+        st.last_fall_ms = g_acc.last_fall_ms;
         (void)pthread_mutex_unlock(&g_lock);
         st.connects = slot_connects(&g_plant) + slot_connects(&g_ctrl);
         memset(&sp, 0, sizeof sp);

@@ -117,7 +117,11 @@ class Relay:
         kind = obj["kind"]
         if kind == "state":
             self.state = obj
-        elif kind in ("level", "notify"):
+        elif kind in ("level", "notify") or (kind == "metric" and "component" in obj):
+            # A metric with a component is a controller event (lead_time_ms, Step 11), not a display
+            # metric: kept in the history and deduplicated like the other events.
+            if kind == "metric" and isinstance(obj.get("name"), str):
+                self.metrics[obj["name"]] = obj.get("value")
             # lg-bridge replays its recent events to every new client: after a reconnect the same event
             # (same seq and t) comes again and is kept and shown once.
             seq, t = obj.get("seq"), obj.get("t")

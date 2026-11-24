@@ -61,7 +61,7 @@
 #define LG_BR_STALE_MS 1000       /* no fresh snapshot for this long: state lines say stale */
 #define LG_BR_EV_QUEUE 64         /* event lines waiting for the main loop */
 #define LG_BR_EV_PER_READ 40      /* events parsed from one read of /dev/lg/events (the ring holds 32) */
-#define LG_BR_DEV_TEXT 6144
+#define LG_BR_DEV_TEXT 9216 /* /dev/lg/events: 32 lines of at most LG_CTL_EVENT_TEXT_MAX (256) */
 
 static slog2_buffer_t g_log;
 static int g_verbose;

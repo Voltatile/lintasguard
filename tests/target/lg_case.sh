@@ -56,6 +56,7 @@ killproc() { for p in $(pidin -p "$1" -F '%a' 2>/dev/null | grep -E '^ *[0-9]+$'
 cleanup() { # the supervisor first, so that it does not start anything again
     killproc lg-supervisor
     killproc lg-bridge
+    killproc lg-health
     killproc lg-meter
     killproc lg-controller
     killproc lg-sensor
@@ -81,6 +82,8 @@ level_trail() {
     slog2info 2>/dev/null | grep -E "lg_controller\.$1[[:space:]]" |
         sed -n 's/.*level \([0-9]\) -> \([0-9]\).*/\1>\2/p' | tr '\n' ' '
 }
+trail_ok() { [ "$1" = "4>0 0>2 2>0 " ] || [ "$1" = "4>0 0>1 1>2 2>0 " ]; }
+only_own_warning() { ! grep "severity=WARNING to=maintenance" /dev/lg/events | grep -qv "sensor=$SENSOR "; }
 ticket_ok() { # the URGENT ticket for the sensor carries one of the expected diagnoses
     grep "severity=URGENT to=maintenance sensor=$SENSOR " /dev/lg/events | grep -qE "diag=($EXPECT_DIAG) "
 }
@@ -241,7 +244,10 @@ if [ "$EXPECT_DIAG" = "NONE" ]; then
 else
     check "an URGENT ticket for $SENSOR with diag $EXPECT_DIAG" ticket_ok
     check "exactly one ticket (tickets 1)" eq "$(cfield tickets)" 1
-    check "the level trail is boot release, down to 2, back to 0" eq "$TRAIL" "4>0 0>2 2>0 "
+    # Since Step 11 lg-health may warn about the faulty sensor first (level 1) before the controller's own
+    # rule declares it FAILED (level 2): both trails are right. A warning about another sensor is not.
+    check "the level trail is boot release, (early warning,) down to 2, back to 0" trail_ok "$TRAIL"
+    check "no early warning about a sensor other than $SENSOR" only_own_warning
     check "level 2 came after the injection (watched from the boot release)" at_least "$UP_MS" "$REF"
     check "level 0 again before the end (recovery recorded)" [ -n "$BACK_MS" ]
     check "back to level 0 not before T_stable after the fault ended" at_least "$REC_CLEAR" $T_STABLE_MS

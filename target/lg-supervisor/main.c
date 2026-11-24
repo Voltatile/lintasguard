@@ -69,6 +69,7 @@ static lg_sup_t g_sup; /* main thread only */
 static char g_bindir[BINDIR_MAX];
 static char g_crossing[PATH_MAX_LG];
 static char g_scenario[PATH_MAX_LG];
+static char g_thresholds[PATH_MAX_LG]; /* thresholds.json next to the crossing config, "" = built-in */
 static uint32_t g_epoch_ms;
 static int g_epoch_set;
 static uint32_t g_refresh_ms;
@@ -159,6 +160,9 @@ static const char *binary_of(int proc) {
     if (proc == LG_PROC_BRIDGE) {
         return "lg-bridge";
     }
+    if (proc == LG_PROC_HEALTH) {
+        return "lg-health";
+    }
     if (proc >= LG_PROC_SENSOR_BASE && proc < LG_PROC_PLANT) {
         return "lg-sensor";
     }
@@ -186,6 +190,14 @@ static void build_argv(int proc, int again, char *path, size_t pathlen, char **a
         argv[n++] = g_crossing;
         if (again) {
             argv[n++] = (char *)"-r"; /* a restart: no boot release, a guard has to acknowledge */
+        }
+        if (g_sup.cfg.installed[LG_PROC_HEALTH]) {
+            argv[n++] = (char *)"-H"; /* lg-health runs: no boot release before its verdicts */
+        }
+    } else if (proc == LG_PROC_HEALTH) {
+        if (g_thresholds[0] != '\0') {
+            argv[n++] = (char *)"-t";
+            argv[n++] = g_thresholds;
         }
     } else if (proc >= LG_PROC_SENSOR_BASE && proc < LG_PROC_PLANT) {
         int idx = proc - LG_PROC_SENSOR_BASE;
@@ -685,6 +697,17 @@ int main(int argc, char **argv) {
 
     setup_logging();
     setup_priority();
+    {
+        /* lg-health reads thresholds.json from the directory of the crossing config when it is there. */
+        const char *slash = strrchr(g_crossing, '/');
+        int dirlen = slash != NULL ? (int)(slash - g_crossing) + 1 : 0;
+
+        (void)snprintf(g_thresholds, sizeof g_thresholds, "%.*sthresholds.json", dirlen, g_crossing);
+        if (access(g_thresholds, R_OK) != 0) {
+            logf_(SLOG2_WARNING, "%s not readable: lg-health uses its built-in thresholds", g_thresholds);
+            g_thresholds[0] = 0; /* none: built-in thresholds */
+        }
+    }
     lg_sup_init(&g_sup, &cfg);
     if (check_binaries() != 0) {
         return 1;

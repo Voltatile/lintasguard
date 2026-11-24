@@ -31,6 +31,7 @@
 
 #include "lg_config.h"
 #include "lg_devctl.h"
+#include "lg_battery_model.h"
 #include "lg_gate_model.h"
 #include "lg_heartbeat.h"
 #include "lg_names.h"
@@ -38,6 +39,7 @@
 #include "lg_target_util.h"
 
 static lg_gate_model_t g_model;
+static lg_battery_model_t g_battery; /* backup battery (Step 11), same thread as the model */
 static uint32_t g_ticks;
 static uint32_t g_seq;
 static slog2_buffer_t g_log;
@@ -179,6 +181,25 @@ static int io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_OCB_T *ocb)
               lg_gate_fault_name((uint8_t)req.mode), (unsigned)req.factor_pct);
         break;
     }
+    case DCMD_LG_GATE_BATTERY: {
+        lg_gate_battery_req_t req;
+
+        if ((ocb->ioflag & _IO_FLAG_WR) == 0) {
+            logf_(SLOG2_WARNING, "devctl battery from pid %d refused: descriptor not open for writing",
+                  (int)ctp->info.pid);
+            return EPERM;
+        }
+        if (msg->i.nbytes < sizeof req || ctp->info.msglen < (int)(sizeof msg->i + sizeof req)) {
+            return EINVAL;
+        }
+        memcpy(&req, _DEVCTL_DATA(msg->i), sizeof req);
+        if (lg_battery_model_set_drain(&g_battery, req.drain_mv_s, now_ms()) != 0) {
+            logf_(SLOG2_WARNING, "devctl battery drain %u mV/s rejected", (unsigned)req.drain_mv_s);
+            return EINVAL;
+        }
+        logf_(SLOG2_WARNING, "battery drain %u mV/s set through devctl", (unsigned)req.drain_mv_s);
+        break;
+    }
     case DCMD_LG_GATE_STATS: {
         lg_gate_stats_t st;
 
@@ -193,6 +214,11 @@ static int io_devctl(resmgr_context_t *ctp, io_devctl_t *msg, RESMGR_OCB_T *ocb)
         st.watchdog_trips = g_model.watchdog_trips;
         st.rejected = g_model.rejected;
         st.ticks = g_ticks;
+        st.moves_done = g_model.moves_done;
+        st.last_peak_ma = g_model.last_peak_ma;
+        lg_battery_model_step(&g_battery, now_ms());
+        st.battery_mv = lg_battery_model_mv(&g_battery);
+        st.battery_drain_mv_s = g_battery.drain_mv_s;
         {
             struct sched_param sp;
             int policy = 0;
@@ -282,6 +308,7 @@ static int on_tick(message_context_t *ctp, int code, unsigned flags, void *handl
 
     g_ticks++;
     lg_gate_model_step(&g_model, now);
+    lg_battery_model_step(&g_battery, now);
     lg_hb_beat(); /* the 10 ms tick that also runs the watchdog is the proof of life */
     if (g_model.watchdog_trips != prev_trips) {
         logf_(SLOG2_ERROR, "watchdog: no controller command or heartbeat for %u ms (limit %u ms), "
@@ -376,6 +403,7 @@ int main(int argc, char **argv) {
 
     /* The gate starts DOWN with lights and bell on, before anything else happens. */
     lg_gate_model_init(&g_model, &cfg, now_ms());
+    lg_battery_model_init(&g_battery, now_ms());
 
     /*
      * _NTO_CHF_FIXED_PRIORITY: on a default channel the server thread takes the priority of

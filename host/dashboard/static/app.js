@@ -63,6 +63,10 @@ function addInbox(ev) {
   if (ev.kind === "level") {
     li.className = "level";
     li.appendChild(document.createTextNode("Level " + ev.from + " → " + ev.to + " (" + ev.reason + ")"));
+  } else if (ev.kind === "metric") {
+    li.className = "info";
+    li.appendChild(document.createTextNode("[metric] warning came " + fmtMs(ev.value) + " before " +
+      ev.component + " failed (lead time)"));
   } else {
     li.className = ev.severity || "info";
     li.appendChild(document.createTextNode("[" + (ev.to || "maintenance") + "] " + (ev.text || ev.diag)));
@@ -71,7 +75,8 @@ function addInbox(ev) {
   while (ul.children.length > 30) ul.removeChild(ul.lastChild);
 }
 
-function setMetric(name, value) {
+function setMetric(name, value, component) {
+  if (name === "lead_time_ms") setText("m-lead", fmtMs(value) + (component ? " (" + component + ")" : ""));
   if (name === "warning_time_ms") setText("m-warning", fmtMs(value));
   else if (name === "closure_ms_per_hour") setText("m-closure", value ? (value / 60000).toFixed(1) + " min/h" : "-");
   else if (name === "trains") setText("m-trains", String(value));
@@ -93,7 +98,8 @@ function handle(msg) {
   } else if (msg.kind === "level" || msg.kind === "notify") {
     addInbox(msg);
   } else if (msg.kind === "metric") {
-    setMetric(msg.name, msg.value);
+    setMetric(msg.name, msg.value, msg.component);
+    if (msg.component !== undefined) addInbox(msg); // a controller event (lead time), not a display metric
   }
   updateHeader();
 }

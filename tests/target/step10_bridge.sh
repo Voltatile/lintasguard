@@ -54,6 +54,7 @@ killproc() {
 cleanup() { # the supervisor first, so that it does not start anything again
     killproc lg-supervisor
     killproc lg-bridge
+    killproc lg-health
     killproc lg-meter
     killproc lg-controller
     killproc lg-sensor

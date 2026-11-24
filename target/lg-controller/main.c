@@ -1,16 +1,22 @@
 /*
  * lg-controller (README 4.2, 4.3, 8.1, 8.2): the only process that commands the gate.
  *
- *   lg-controller [-c <crossing.json>] [-r] [-v]
+ *   lg-controller [-c <crossing.json>] [-r] [-H] [-v]
  *
  *   -r  restarted by the supervisor: boots in level 4 without the boot release, a guard acknowledgement
  *       is needed (the earlier controller may have died while level 4 was locked)
+ *   -H  lg-health is installed (the supervisor passes it): no boot release before its first verdicts,
+ *       and its silence counts as a lost health monitor (Step 11)
  *
  *  - name lg/controller      message passing: LG_MSG_SENSOR_SAMPLE in (reply: lg_ack_t, a refusal is
  *                            lg_ack_t.status, never MsgError, so a sensor does not reconnect).
  *                            LG_MSG_PROC_STATUS in (from lg-supervisor), LG_MSG_GUARD_ACK in (from lgctl;
  *                            only guard ids from the "guards" array of the crossing config, -c; without
  *                            -c nobody may acknowledge; the PIN hash is NOT checked yet, Step 13).
+ *                            LG_MSG_HEALTH_VERDICT in (from lg-health, Step 11). Any local process
+ *                            could send one; a verdict can only make a component look worse (the
+ *                            effective verdict is the worse of the controller's own and lg-health's),
+ *                            sender authentication is Step 13.
  *  - /dev/lg/controller      read: one line of status text. Writes are refused (EPERM).
  *  - /dev/lg/events          read: the events still in the ring of the decision logic (level changes,
  *                            maintenance tickets), one key=value line each, oldest first. Writes are
@@ -121,17 +127,17 @@ static struct {
 static iofunc_attr_t g_attr;
 static resmgr_connect_funcs_t g_connect_funcs;
 static resmgr_io_funcs_t g_io_funcs;
-static char g_text[768]; /* core line (under 512, test_controller_events) + process counters */
+static char g_text[1280]; /* core line (under 800, test_controller_events) + process counters */
 static iofunc_attr_t g_ev_attr;
 static resmgr_io_funcs_t g_ev_io_funcs;
-static char g_ev_text[LG_CTL_EVENT_RING * 160];
+static char g_ev_text[LG_CTL_EVENT_RING * LG_CTL_EVENT_TEXT_MAX];
 static uint32_t g_ev_logged; /* seq of the newest event written to slog2 */
 static uint32_t g_ev_lost;   /* events that left the ring before they were logged */
 
 static void logf_(uint8_t severity, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
 static void logf_(uint8_t severity, const char *fmt, ...) {
-    char line[200];
+    char line[LG_CTL_EVENT_TEXT_MAX + 40]; /* an event line plus a prefix */
     va_list ap;
 
     va_start(ap, fmt);
@@ -456,6 +462,26 @@ static int on_proc_status(message_context_t *ctp, int code, unsigned flags, void
     return 0;
 }
 
+/* A health verdict from lg-health (Step 11). */
+static int on_health_verdict(message_context_t *ctp, int code, unsigned flags, void *handle) {
+    const lg_health_verdict_t *v = (const lg_health_verdict_t *)ctp->msg;
+
+    (void)flags;
+    (void)handle;
+
+    if ((size_t)ctp->info.msglen < sizeof *v || v->hdr.type != (uint16_t)code ||
+        v->hdr.version != LG_PROTO_VERSION) {
+        g_ctl.health_rejected++;
+        reply_ack(ctp, EINVAL);
+        return 0;
+    }
+    reply_ack(ctp, lg_ctl_on_health_verdict_flags(&g_ctl, v->component_id, v->score, v->verdict, v->diagnosis_code,
+                                                  v->trend_s_to_failure, v->flags, now_ms()) == 0
+                       ? 0
+                       : EINVAL);
+    return 0;
+}
+
 /*
  * A guard acknowledges level 4. Only ids from the config count and only the plain acknowledgement;
  * whether level 4 is really left is decided by the mode manager (healthy inputs, stable). The PIN
@@ -491,7 +517,7 @@ static void log_events(void) {
     lg_ctl_event_t ev[8];
     uint32_t n;
     uint32_t k;
-    char line[160];
+    char line[LG_CTL_EVENT_TEXT_MAX];
 
     if (g_ctl.events == g_ev_logged) {
         return;
@@ -774,8 +800,10 @@ int main(int argc, char **argv) {
             crossing = argv[++i];
         } else if (strcmp(argv[i], "-r") == 0) {
             cfg.restarted = 1;
+        } else if (strcmp(argv[i], "-H") == 0) {
+            cfg.health_required = 1;
         } else {
-            (void)fprintf(stderr, "usage: lg-controller [-c <crossing.json>] [-r] [-v]\n");
+            (void)fprintf(stderr, "usage: lg-controller [-c <crossing.json>] [-r] [-H] [-v]\n");
             return 2;
         }
     }
@@ -830,7 +858,8 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (message_attach(dpp, NULL, LG_MSG_PROC_STATUS, LG_MSG_PROC_STATUS, on_proc_status, NULL) == -1 ||
-        message_attach(dpp, NULL, LG_MSG_GUARD_ACK, LG_MSG_GUARD_ACK, on_guard_ack, NULL) == -1) {
+        message_attach(dpp, NULL, LG_MSG_GUARD_ACK, LG_MSG_GUARD_ACK, on_guard_ack, NULL) == -1 ||
+        message_attach(dpp, NULL, LG_MSG_HEALTH_VERDICT, LG_MSG_HEALTH_VERDICT, on_health_verdict, NULL) == -1) {
         logf_(SLOG2_ERROR, "message_attach failed: %s", strerror(errno));
         return 1;
     }

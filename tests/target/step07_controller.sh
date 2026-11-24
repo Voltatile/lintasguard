@@ -54,6 +54,7 @@ killproc() {
 
 cleanup() {
     killproc lg-bridge
+    killproc lg-health
     killproc lg-meter
     killproc lg-controller
     killproc lg-sensor
