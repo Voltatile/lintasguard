@@ -1,0 +1,352 @@
+=== Step 11 health test, scenario health_faults.json, Mon Nov 23 11:05:07 UTC 2026
+QNX lintasguard 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64
+=== part 1: baseline, no fault (false alarms)
+PASS: part 1: fresh system released to level 0
+PASS: part 1: lg-health runs under the supervisor
+PASS: part 1: the controller was started with -H (health_armed 1 after the boot)
+--- lg-meter output (exit 0):
+key,value
+plant_end_ms,130008
+meter_samples,11807
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,11807
+meter_coverage_pct,100
+meter_max_gap_ms,49
+meter_max_sample_gap_ms,49
+trains,3
+trains_without_warning,0
+warning_count,3
+warning_max_ms,18170
+warning_avg_ms,16716
+closure_count,3
+closure_max_ms,17629
+closure_avg_ms,15133
+closed_ms,69416
+observed_ms,118061
+closure_ms_per_hour,2116682
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,137
+controller_cycles,3
+controller_level_end,0
+--- /dev/lg/events:
+seq=1 t_ms=116531787 kind=NOTIFY severity=WARNING to=maintenance sensor=west/a diag=DROPOUTS level=4 component=west/a trend_s=-1
+seq=2 t_ms=116531787 kind=NOTIFY severity=WARNING to=maintenance sensor=west/b diag=DROPOUTS level=4 component=west/b trend_s=-1
+seq=3 t_ms=116531787 kind=NOTIFY severity=WARNING to=maintenance sensor=west/island diag=DROPOUTS level=4 component=west/island trend_s=-1
+seq=4 t_ms=116531787 kind=NOTIFY severity=WARNING to=maintenance sensor=east/a diag=DROPOUTS level=4 component=east/a trend_s=-1
+seq=5 t_ms=116531787 kind=NOTIFY severity=WARNING to=maintenance sensor=east/b diag=DROPOUTS level=4 component=east/b trend_s=-1
+seq=6 t_ms=116531787 kind=NOTIFY severity=WARNING to=maintenance sensor=east/island diag=DROPOUTS level=4 component=east/island trend_s=-1
+seq=7 t_ms=116534238 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=4 component=west/a trend_s=-1
+seq=8 t_ms=116534238 kind=NOTIFY severity=INFO to=maintenance sensor=west/b diag=OK level=4 component=west/b trend_s=-1
+seq=9 t_ms=116534238 kind=NOTIFY severity=INFO to=maintenance sensor=west/island diag=OK level=4 component=west/island trend_s=-1
+seq=10 t_ms=116534238 kind=NOTIFY severity=INFO to=maintenance sensor=east/a diag=OK level=4 component=east/a trend_s=-1
+seq=11 t_ms=116534238 kind=NOTIFY severity=INFO to=maintenance sensor=east/b diag=OK level=4 component=east/b trend_s=-1
+seq=12 t_ms=116534288 kind=NOTIFY severity=INFO to=maintenance sensor=east/island diag=OK level=4 component=east/island trend_s=-1
+seq=13 t_ms=116539288 kind=LEVEL severity=INFO from=4 to=0 reason=2
+--- /dev/lg/controller:
+level=0 boot_lock=0 gate=UP gate_silent=0 target=UP lights=0 bell=0 active=0,0 activations=3 cycles=3 ticks=12922 late_ticks=137 samples=77395 rejected=0 gate_replies=12921 gate_timeouts=0 sup_armed=1 sup_silent=0 proc_status_rx=1302 proc_status_rejected=0 proc_bad=0x0 guard_acks=0 tickets=0 sensor_failed=0x0 events=13 unmet=0x0,0x0 stalls=0 health_armed=1 health_silent=0 health_rx=2022 health_rejected=0 comp_bad=0x0 warnings=6 lead_times=0 last_lead_time_ms=0 ignored_ticks=15 gate_connects=1 gate_dropped=0 guards=1 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+--- /dev/lg/health:
+comp=west/a score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3043 base_milli=3073 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=west/b score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=2945 base_milli=3000 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=west/island score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3189 base_milli=3140 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/a score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3006 base_milli=3130 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/b score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3200 base_milli=3100 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/island score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=2968 base_milli=3062 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=gate score=100 verdict=OK diag=NONE trend_s=-1 moves=7 travel_pm=1001 current_pm=1000 cusum_travel=0 cusum_current=0
+comp=battery score=100 verdict=OK diag=NONE trend_s=-1 mv=13200 slope_uv_s=0 tte_s=-1
+process rounds=2599 late_rounds=0 sent=2022 send_fail=0 refused=0 connects=1 resets=0
+RESULT part1_max_level=0
+RESULT part1_warnings=6
+RESULT part1_level_trail=4>0,
+FAIL: part 1: no WARNING notification at all
+FAIL: part 1: controller warnings counter is 0
+PASS: part 1: no maintenance ticket
+PASS: part 1: the level stayed 0 after the boot release
+PASS: part 1: every component of /dev/lg/health is OK
+PASS: part 1: lg-health was never silent
+PASS: part 1: no learned noise baseline above base + 2 units (west/a)
+RESULT part1_trains=3
+RESULT part1_trains_without_warning=0
+RESULT part1_closure_count=3
+RESULT part1_closure_max_ms=17629
+RESULT part1_warning_avg_ms=16716
+RESULT part1_wrong_side_events=0
+RESULT part1_wrong_side_ticks=0
+RESULT part1_meter_coverage_pct=100
+RESULT part1_meter_max_gap_ms=49
+PASS: part1: wrong_side_events is 0
+PASS: part1: wrong_side_ticks is 0
+PASS: part1: lg-meter observed the whole run and saw no wrong side (exit 0)
+PASS: part1: every train reached the island with the lights on
+PASS: part1: trains seen by the meter: 3
+=== part 2: DRIFT 1 unit/s on west/a at 50 s
+PASS: part 2: fresh system released to level 0
+/dev/lg/sensor/west/a: fault DRIFT param=1 accepted
+PASS: part 2: inject lgctl sensor west/a fault drift 1 (exit 0)
+RESULT part2_inject_plant_ms=50118
+/dev/lg/sensor/west/a: fault NONE param=0 accepted
+PASS: part 2: clear lgctl sensor west/a fault none (exit 0)
+RESULT part2_clear_plant_ms=100120
+--- lg-meter output (exit 0):
+key,value
+plant_end_ms,175005
+meter_samples,16310
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,16310
+meter_coverage_pct,100
+meter_max_gap_ms,30
+meter_max_sample_gap_ms,30
+trains,4
+trains_without_warning,0
+warning_count,4
+warning_max_ms,18160
+warning_avg_ms,16533
+closure_count,4
+closure_max_ms,18481
+closure_avg_ms,16460
+closed_ms,97881
+observed_ms,163091
+closure_ms_per_hour,2160582
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,218
+controller_cycles,4
+controller_level_end,0
+--- /dev/lg/events:
+seq=1 t_ms=116663740 kind=NOTIFY severity=WARNING to=maintenance sensor=west/a diag=DROPOUTS level=4 component=west/a trend_s=-1
+seq=2 t_ms=116663740 kind=NOTIFY severity=WARNING to=maintenance sensor=west/b diag=DROPOUTS level=4 component=west/b trend_s=-1
+seq=3 t_ms=116663740 kind=NOTIFY severity=WARNING to=maintenance sensor=west/island diag=DROPOUTS level=4 component=west/island trend_s=-1
+seq=4 t_ms=116663740 kind=NOTIFY severity=WARNING to=maintenance sensor=east/a diag=DROPOUTS level=4 component=east/a trend_s=-1
+seq=5 t_ms=116663740 kind=NOTIFY severity=WARNING to=maintenance sensor=east/b diag=DROPOUTS level=4 component=east/b trend_s=-1
+seq=6 t_ms=116663740 kind=NOTIFY severity=WARNING to=maintenance sensor=east/island diag=DROPOUTS level=4 component=east/island trend_s=-1
+seq=7 t_ms=116666189 kind=NOTIFY severity=INFO to=maintenance sensor=east/a diag=OK level=4 component=east/a trend_s=-1
+seq=8 t_ms=116666189 kind=NOTIFY severity=INFO to=maintenance sensor=east/b diag=OK level=4 component=east/b trend_s=-1
+seq=9 t_ms=116666189 kind=NOTIFY severity=INFO to=maintenance sensor=east/island diag=OK level=4 component=east/island trend_s=-1
+seq=10 t_ms=116666238 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=4 component=west/a trend_s=-1
+seq=11 t_ms=116666238 kind=NOTIFY severity=INFO to=maintenance sensor=west/b diag=OK level=4 component=west/b trend_s=-1
+seq=12 t_ms=116666238 kind=NOTIFY severity=INFO to=maintenance sensor=west/island diag=OK level=4 component=west/island trend_s=-1
+seq=13 t_ms=116671239 kind=LEVEL severity=INFO from=4 to=0 reason=2
+seq=14 t_ms=116717034 kind=NOTIFY severity=WARNING to=maintenance sensor=west/a diag=NOISE_RISING level=0 component=west/a trend_s=40
+seq=15 t_ms=116717034 kind=LEVEL severity=WARNING from=0 to=1 reason=3
+seq=16 t_ms=116738934 kind=NOTIFY severity=URGENT to=maintenance sensor=west/a diag=NOISE_RISING level=1 component=west/a trend_s=0
+seq=17 t_ms=116738934 kind=METRIC name=lead_time_ms component=west/a value=21900
+seq=18 t_ms=116738934 kind=LEVEL severity=WARNING from=1 to=2 reason=4
+seq=19 t_ms=116768934 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=2 component=west/a trend_s=0
+seq=20 t_ms=116798936 kind=LEVEL severity=INFO from=2 to=0 reason=12
+--- /dev/lg/controller:
+level=0 boot_lock=0 gate=UP gate_silent=0 target=UP lights=0 bell=0 active=0,0 activations=4 cycles=4 ticks=17491 late_ticks=218 samples=104853 rejected=0 gate_replies=17490 gate_timeouts=0 sup_armed=1 sup_silent=0 proc_status_rx=1752 proc_status_rejected=0 proc_bad=0x0 guard_acks=0 tickets=1 sensor_failed=0x0 events=20 unmet=0x0,0x0 stalls=0 health_armed=1 health_silent=0 health_rx=2735 health_rejected=0 comp_bad=0x0 warnings=7 lead_times=1 last_lead_time_ms=21900 ignored_ticks=1 gate_connects=1 gate_dropped=0 guards=1 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+--- /dev/lg/health:
+comp=west/a score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3092 base_milli=3074 cusum=0 drop_pm=3 delay_ms=60 disagree=0 learning=0
+comp=west/b score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3010 base_milli=3000 cusum=0 drop_pm=3 delay_ms=1 disagree=0 learning=0
+comp=west/island score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3197 base_milli=3135 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/a score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3114 base_milli=3123 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/b score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=2885 base_milli=3095 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/island score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3143 base_milli=3056 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=gate score=100 verdict=OK diag=NONE trend_s=-1 moves=9 travel_pm=1001 current_pm=1000 cusum_travel=0 cusum_current=0
+comp=battery score=100 verdict=OK diag=NONE trend_s=-1 mv=13200 slope_uv_s=0 tte_s=-1
+process rounds=3501 late_rounds=0 sent=2735 send_fail=0 refused=0 connects=1 resets=0
+RESULT part2_warning_line=seq=1 t_ms=116663740 kind=NOTIFY severity=WARNING to=maintenance sensor=west/a diag=DROPOUTS level=4 component=west/a trend_s=-1
+RESULT part2_failed_line=seq=16 t_ms=116738934 kind=NOTIFY severity=URGENT to=maintenance sensor=west/a diag=NOISE_RISING level=1 component=west/a trend_s=0
+RESULT part2_metric_line=seq=17 t_ms=116738934 kind=METRIC name=lead_time_ms component=west/a value=21900
+RESULT part2_level_trail=4>0,0>1,1>2,2>0,
+RESULT part2_lights_on_in_level1_plant_ms=60145
+RESULT part2_gate_left_up_in_level1_plant_ms=65117
+RESULT part2_lead_time_ms=21900
+RESULT part2_failed_minus_warning_ms=75194
+PASS: part 2: WARNING notification for west/a
+FAIL: part 2: its diagnosis is NOISE_RISING
+FAIL: part 2: it carries a trend (trend_s at least 1)
+PASS: part 2: level 1 was entered (0>1 in the level trail)
+PASS: part 2: URGENT ticket for west/a (FAILED)
+PASS: part 2: the warning came before the failure (seq)
+PASS: part 2: the warning came before the failure (time)
+PASS: part 2: level 2 followed level 1 (1>2 in the level trail)
+PASS: part 2: METRIC lead_time_ms for west/a
+FAIL: part 2: lead_time_ms equals t(FAILED) - t(WARNING)
+PASS: part 2: lead time at least 5 s
+PASS: part 2: a train was activated while in level 1
+PASS: part 2: its gate was lowered while in level 1
+PASS: part 2: with the normal pre-warning (lights on to gate moving at least 4.5 s, level 2 would be 0)
+PASS: part 2: INFO notification when west/a was OK again
+PASS: part 2: back to level 0 by the end (fault cleared at 100 s)
+FAIL: part 2: the healthy partner west/b got no notification
+PASS: part 2: the controller was not restarted
+RESULT part2_trains=4
+RESULT part2_trains_without_warning=0
+RESULT part2_closure_count=4
+RESULT part2_closure_max_ms=18481
+RESULT part2_warning_avg_ms=16533
+RESULT part2_wrong_side_events=0
+RESULT part2_wrong_side_ticks=0
+RESULT part2_meter_coverage_pct=100
+RESULT part2_meter_max_gap_ms=30
+PASS: part2: wrong_side_events is 0
+PASS: part2: wrong_side_ticks is 0
+PASS: part2: lg-meter observed the whole run and saw no wrong side (exit 0)
+PASS: part2: every train reached the island with the lights on
+PASS: part2: trains seen by the meter: 4
+=== part 3: gate wear (SLOW 125 % at 50 s, 150 % at 95 s, 180 % at 135 s)
+PASS: part 3: fresh system released to level 0
+/dev/lg/gate: fault slow factor=125% accepted
+PASS: part 3: lgctl gate fault slow 125 (exit 0)
+/dev/lg/gate: fault slow factor=150% accepted
+PASS: part 3: lgctl gate fault slow 150 (exit 0)
+/dev/lg/gate: fault slow factor=180% accepted
+PASS: part 3: lgctl gate fault slow 180 (exit 0)
+RESULT part3_level4_plant_ms=152374
+--- /dev/lg/health at the failure:
+comp=west/a score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3031 base_milli=3071 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=west/b score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3153 base_milli=3000 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=west/island score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3184 base_milli=3138 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/a score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3128 base_milli=3124 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/b score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3187 base_milli=3086 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/island score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3025 base_milli=3062 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=gate score=39 verdict=FAILED diag=GATE_SLOW trend_s=20 moves=8 travel_pm=1612 current_pm=1000 cusum_travel=600 cusum_current=0
+comp=battery score=100 verdict=OK diag=NONE trend_s=-1 mv=13200 slope_uv_s=0 tte_s=-1
+process rounds=3046 late_rounds=0 sent=2375 send_fail=0 refused=0 connects=1 resets=0
+PASS: part 3: the gate is held DOWN in level 4
+/dev/lg/gate: fault none factor=100% accepted
+PASS: part 3: repair: lgctl gate fault none (exit 0)
+health of gate reset
+PASS: part 3: repair: lgctl health reset gate (exit 0)
+PASS: part 3: the gate verdict is OK after the reset
+PASS: part 3: still level 4 after the repair (no release without a guard)
+guard ack for 'G01' sent (level 4 is left only if all inputs are healthy and stable)
+PASS: part 3: lgctl guard-ack --id G01 (exit 0)
+RESULT part3_guard_ack_plant_ms=153473
+--- lg-meter output (exit 0):
+key,value
+plant_end_ms,218005
+meter_samples,20609
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,20609
+meter_coverage_pct,100
+meter_max_gap_ms,20
+meter_max_sample_gap_ms,20
+trains,5
+trains_without_warning,0
+warning_count,5
+warning_max_ms,55990
+warning_avg_ms,24426
+closure_count,4
+closure_max_ms,51069
+closure_avg_ms,23363
+closed_ms,134689
+observed_ms,206080
+closure_ms_per_hour,2352874
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,128
+controller_cycles,4
+controller_level_end,0
+--- /dev/lg/events:
+seq=1 t_ms=116840817 kind=NOTIFY severity=WARNING to=maintenance sensor=west/a diag=DROPOUTS level=4 component=west/a trend_s=-1
+seq=2 t_ms=116840817 kind=NOTIFY severity=WARNING to=maintenance sensor=west/b diag=DROPOUTS level=4 component=west/b trend_s=-1
+seq=3 t_ms=116840817 kind=NOTIFY severity=WARNING to=maintenance sensor=west/island diag=DROPOUTS level=4 component=west/island trend_s=-1
+seq=4 t_ms=116840817 kind=NOTIFY severity=WARNING to=maintenance sensor=east/a diag=DROPOUTS level=4 component=east/a trend_s=-1
+seq=5 t_ms=116840817 kind=NOTIFY severity=WARNING to=maintenance sensor=east/b diag=DROPOUTS level=4 component=east/b trend_s=-1
+seq=6 t_ms=116840817 kind=NOTIFY severity=WARNING to=maintenance sensor=east/island diag=DROPOUTS level=4 component=east/island trend_s=-1
+seq=7 t_ms=116843315 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=4 component=west/a trend_s=-1
+seq=8 t_ms=116843315 kind=NOTIFY severity=INFO to=maintenance sensor=west/b diag=OK level=4 component=west/b trend_s=-1
+seq=9 t_ms=116843365 kind=NOTIFY severity=INFO to=maintenance sensor=west/island diag=OK level=4 component=west/island trend_s=-1
+seq=10 t_ms=116843365 kind=NOTIFY severity=INFO to=maintenance sensor=east/a diag=OK level=4 component=east/a trend_s=-1
+seq=11 t_ms=116843365 kind=NOTIFY severity=INFO to=maintenance sensor=east/b diag=OK level=4 component=east/b trend_s=-1
+seq=12 t_ms=116843365 kind=NOTIFY severity=INFO to=maintenance sensor=east/island diag=OK level=4 component=east/island trend_s=-1
+seq=13 t_ms=116848366 kind=LEVEL severity=INFO from=4 to=0 reason=2
+seq=14 t_ms=116932410 kind=NOTIFY severity=WARNING to=maintenance sensor=none diag=GATE_SLOW level=0 component=gate trend_s=191
+seq=15 t_ms=116932410 kind=LEVEL severity=WARNING from=0 to=1 reason=3
+seq=16 t_ms=116992810 kind=NOTIFY severity=URGENT to=maintenance sensor=none diag=GATE_SLOW level=1 component=gate trend_s=-1
+seq=17 t_ms=116992810 kind=METRIC name=lead_time_ms component=gate value=60400
+seq=18 t_ms=116992810 kind=LEVEL severity=URGENT from=1 to=4 reason=10
+seq=19 t_ms=116993010 kind=NOTIFY severity=INFO to=maintenance sensor=none diag=OK level=4 component=gate trend_s=-1
+seq=20 t_ms=117024000 kind=LEVEL severity=INFO from=4 to=0 reason=13
+--- /dev/lg/controller:
+level=0 boot_lock=0 gate=UP gate_silent=0 target=UP lights=0 bell=0 active=0,0 activations=5 cycles=4 ticks=21795 late_ticks=128 samples=130543 rejected=0 gate_replies=21794 gate_timeouts=0 sup_armed=1 sup_silent=0 proc_status_rx=2182 proc_status_rejected=0 proc_bad=0x0 guard_acks=1 tickets=1 sensor_failed=0x0 events=20 unmet=0x0,0x0 stalls=0 health_armed=1 health_silent=0 health_rx=3407 health_rejected=0 comp_bad=0x0 warnings=7 lead_times=1 last_lead_time_ms=60400 ignored_ticks=6 gate_connects=1 gate_dropped=0 guards=1 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+--- /dev/lg/health:
+comp=west/a score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3116 base_milli=3071 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=west/b score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3009 base_milli=3000 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=west/island score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3026 base_milli=3138 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/a score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3240 base_milli=3124 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/b score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=2979 base_milli=3086 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=east/island score=99 verdict=OK diag=NONE trend_s=-1 noise_milli=3134 base_milli=3062 cusum=0 drop_pm=3 delay_ms=0 disagree=0 learning=0
+comp=gate score=100 verdict=OK diag=NONE trend_s=-1 moves=1 travel_pm=1000 current_pm=1000 cusum_travel=0 cusum_current=0
+comp=battery score=100 verdict=OK diag=NONE trend_s=-1 mv=13200 slope_uv_s=0 tte_s=-1
+process rounds=4361 late_rounds=0 sent=3407 send_fail=0 refused=0 connects=1 resets=1
+RESULT part3_warning_line=seq=14 t_ms=116932410 kind=NOTIFY severity=WARNING to=maintenance sensor=none diag=GATE_SLOW level=0 component=gate trend_s=191
+RESULT part3_failed_line=seq=16 t_ms=116992810 kind=NOTIFY severity=URGENT to=maintenance sensor=none diag=GATE_SLOW level=1 component=gate trend_s=-1
+RESULT part3_metric_line=seq=17 t_ms=116992810 kind=METRIC name=lead_time_ms component=gate value=60400
+RESULT part3_level_trail=4>0,0>1,1>4,4>0,
+RESULT part3_lead_time_ms=60400
+RESULT part3_steps_plant_ms=50101,95027,135041
+PASS: part 3: WARNING notification for the gate
+PASS: part 3: its diagnosis is GATE_SLOW
+RESULT part3_level1_plant_ms=91974
+PASS: part 3: level 1 came with the 125 % step (before the 150 % step at 95 s)
+PASS: part 3: level 1 was entered (0>1)
+PASS: part 3: URGENT ticket for the gate (FAILED)
+PASS: part 3: the warning came before the failure (seq)
+PASS: part 3: level 4 followed (1>4)
+PASS: part 3: METRIC lead_time_ms for the gate
+PASS: part 3: lead_time_ms equals t(FAILED) - t(WARNING)
+PASS: part 3: lead time at least 10 s
+PASS: part 3: the guard acknowledgement released level 4 (4>0 after the failure)
+PASS: part 3: level 0 and gate UP at the end
+PASS: part 3: the controller was not restarted
+RESULT part3_trains=5
+RESULT part3_trains_without_warning=0
+RESULT part3_closure_count=4
+RESULT part3_closure_max_ms=51069
+RESULT part3_warning_avg_ms=24426
+RESULT part3_wrong_side_events=0
+RESULT part3_wrong_side_ticks=0
+RESULT part3_meter_coverage_pct=100
+RESULT part3_meter_max_gap_ms=20
+PASS: part3: wrong_side_events is 0
+PASS: part3: wrong_side_ticks is 0
+PASS: part3: lg-meter observed the whole run and saw no wrong side (exit 0)
+PASS: part3: every train reached the island with the lights on
+PASS: part3: trains seen by the meter: 5
+=== part 4: lg-health killed
+PASS: part 4: fresh system released to level 0
+killed health pid 648278052 (SIGKILL)
+PASS: part 4: lgctl kill health (exit 0)
+PASS: part 4: the supervisor restarted lg-health within 3 s (total 1)
+PASS: part 4: the controller goes to level 2 for the restart
+PASS: part 4: it is a new process
+PASS: part 4: back to level 0 within T_stable + 15 s
+PASS: part 4: the gate never left UP (watchdog_trips 0, state UP)
+PASS: part 4: health verdicts flow again (health_silent 0)
+--- lg-meter output (exit 0):
+key,value
+plant_end_ms,60005
+meter_samples,4809
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,4809
+meter_coverage_pct,100
+meter_max_gap_ms,15
+meter_max_sample_gap_ms,15
+trains,0
+trains_without_warning,0
+warning_count,0
+warning_max_ms,0
+warning_avg_ms,0
+closure_count,0
+closure_max_ms,0
+closure_avg_ms,0
+closed_ms,0
+observed_ms,48083
+closure_ms_per_hour,0
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,131
+controller_cycles,0
+controller_level_end,0
+RESULT part4_level_trail=4>0,0>2,2>0,
+PASS: part 4: wrong_side_events is 0
+PASS: part 4: lg-meter observed the whole run (exit 0)
+RESULT checks=79 fails=6
+FAIL: step11_health (6 of 79 checks failed)

@@ -1,0 +1,4 @@
+campaign sensor_faults: 1 case(s) on 192.168.56.102, commit b94bd3c (working tree has uncommitted changes)
+  baseline (plant time up to 270 s) ...
+    PASS: max_level=0 tickets=0 recovery_inject_ms= wrong_side=0
+1 of 1 case(s) passed. Report: evidence\step11_campaign\final\g1_baseline.md  Raw output: evidence\step11_campaign\final\g1_baseline.txt

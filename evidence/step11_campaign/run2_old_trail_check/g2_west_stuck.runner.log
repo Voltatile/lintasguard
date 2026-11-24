@@ -1,0 +1,6 @@
+campaign sensor_faults: 2 case(s) on 192.168.56.102, commit b94bd3c (working tree has uncommitted changes)
+  stuck_occupied_west_a (plant time up to 145 s) ...
+    FAIL (1 check(s)): max_level=2 tickets=1 recovery_inject_ms=123947 wrong_side=0
+  stuck_clear_west_a (plant time up to 145 s) ...
+    FAIL (1 check(s)): max_level=2 tickets=1 recovery_inject_ms=124022 wrong_side=0
+0 of 2 case(s) passed. Report: evidence\step11_campaign\final\g2_west_stuck.md  Raw output: evidence\step11_campaign\final\g2_west_stuck.txt

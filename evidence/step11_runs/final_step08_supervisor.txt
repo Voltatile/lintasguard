@@ -1,0 +1,314 @@
+=== part 1: boot through the supervisor (scenario without trains)
+PASS: the supervisor device appears and a supervisor runs
+PASS: the controller reaches RUNNING within 15 s
+PASS: the bridge, started last (Step 10), reaches RUNNING within 5 s
+PASS: every row of the table is RUNNING
+PASS: start order: the gate first, controller and health, then the bridge last, six sensors, eleven in all
+PASS: the supervisor runs SCHED_FIFO 55 (logged by the process itself)
+PASS: boot check: level 0 once the sensors are healthy
+PASS: the gate rises to UP with the lights off
+PASS: gate UP with lights off
+PASS: no process was restarted during boot (all sensor rows total 0)
+PASS: gate, plant and controller rows have total 0
+PASS: the controller got the supervisor's table (proc_status_rx at least 10)
+PASS: the controller treats the supervisor as armed and alive
+PASS: no process is reported down to the controller (proc_bad 0x0)
+PASS: the supervisor's link to the controller is up
+PASS: heartbeats arrive from all ten processes (hb_rx at least 20 each)
+PASS: no heartbeat was ignored in a normal run
+PASS: writing to /dev/lg/supervisor is refused
+PASS: the gate watchdog did not trip (the controller keeps feeding it)
+PASS: lgctl status prints both devices (exit 0)
+PASS: lgctl kill with a bad name is a usage error (exit 2)
+PASS: lgctl kill sensor with a bad sensor is a usage error (exit 2)
+--- supervisor table:
+supervisor procs=11 budget=3 window_ms=10000 exits_ignored=0 hb_unknown=0 stalls=0
+proc=controller id=1 state=RUNNING phase=RUNNING pid=2032484378 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=474 hb_ignored=0
+proc=gate id=2 state=RUNNING phase=RUNNING pid=2032480283 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=477 hb_ignored=0
+proc=sensor/west/a id=3 state=RUNNING phase=RUNNING pid=2032480284 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=476 hb_ignored=0
+proc=sensor/west/b id=4 state=RUNNING phase=RUNNING pid=2032480285 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=476 hb_ignored=0
+proc=sensor/west/island id=5 state=RUNNING phase=RUNNING pid=2032480286 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=476 hb_ignored=0
+proc=sensor/east/a id=6 state=RUNNING phase=RUNNING pid=2032480287 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=476 hb_ignored=0
+proc=sensor/east/b id=7 state=RUNNING phase=RUNNING pid=2032480288 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=476 hb_ignored=0
+proc=sensor/east/island id=8 state=RUNNING phase=RUNNING pid=2032480289 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=476 hb_ignored=0
+proc=plant id=9 state=RUNNING phase=RUNNING pid=2032480290 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=285 hb_ignored=0
+proc=health id=10 state=RUNNING phase=RUNNING pid=2032484388 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=284 hb_ignored=0
+proc=bridge id=12 state=RUNNING phase=RUNNING pid=2032574501 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=333 hb_ignored=0
+controller_link linked=1 sent=152 failed=0 rejected=0 connects=1 hb_no_info=0 foreign_pulses=0
+=== part 2: a sensor is killed (lgctl kill sensor west/a)
+PASS: lgctl kill sensor west/a (exit 0)
+PASS: the supervisor notices the exit and counts one restart in the window
+PASS: the new sensor is RUNNING again within 5 s
+PASS: the new sensor has another pid than the killed one
+PASS: the restart is recorded: why=exit, total 1
+--- west/a recovery_ms (detection of the exit to the first heartbeat of the new process): 17
+PASS: recovery within the start grace (recovery_ms between 1 and 1500)
+PASS: the controller drops to level 2 (the redundant sensor still works)
+PASS: level 2 holds while the new sensor is stable but T_stable has not passed (20 s)
+PASS: the gate stays UP with the lights off during the restart
+PASS: the watchdog did not trip
+PASS: level 0 again after T_stable (30 s)
+--- seconds from the kill to level 0: 30
+PASS: level 0 came after T_stable and not much later (28 to 50 s after the kill)
+PASS: the level trail is boot release, down to 2, back to 0 (and nothing else)
+PASS: the controller sees nothing down again (proc_bad 0x0)
+PASS: the other sensors were not touched
+=== part 3: hang and crash faults are repaired by a restart
+PASS: lgctl sensor west/b fault hang (exit 0)
+PASS: the missing heartbeat is noticed and the sensor killed (why=hang, total 1)
+PASS: the sensor is started again and RUNNING within 5 s
+PASS: the restart cleared the fault (stats say fault=NONE)
+PASS: the controller dropped to level 2 meanwhile
+PASS: a crashed sensor is started again (total 1, why=exit)
+PASS: and is RUNNING within 5 s
+PASS: its samples reach the controller again (stats: samples_sent grows)
+PASS: no process is DEAD
+=== part 4: restart budget (3 restarts in 10 s), then DEAD
+PASS: fresh system
+PASS: after the fourth kill within 10 s the sensor is DEAD
+PASS: it was restarted 3 times and has no process now
+PASS: the controller is told: east/b (process id 7) is down (proc_bad 0x80)
+PASS: one lost sensor of a redundant pair is level 2, not 4
+PASS: still DEAD with no pid after the window
+PASS: lgctl kill on a DEAD sensor reports that nothing runs (exit 1)
+PASS: the other ten processes are RUNNING
+PASS: the gate stays UP and the watchdog did not trip
+=== part 5: the controller is killed (lgctl kill controller)
+PASS: fresh system
+PASS: lgctl kill controller (exit 0)
+PASS: the gate leaves UP within 3 s
+PASS: the gate reaches DOWN
+--- watchdog trips before: 0, after: 0 (the new controller may command the gate before the watchdog trips)
+PASS: the supervisor started a new controller (total 1)
+PASS: the controller exit is recorded as why=exit
+PASS: the new controller has another pid
+PASS: the new controller is RUNNING
+PASS: the new controller boots in level 4
+PASS: the new controller learns the supervisor's table within 3 s (sup_armed 1)
+PASS: the supervisor started it with -r (restart: no boot release), level 4 holds for 15 s although everything is healthy
+PASS: the gate is DOWN with the lights on
+PASS: nothing is reported down to the new controller (proc_bad 0x0)
+--- level 0 reached, acknowledgements after the first: 0
+PASS: guard G01 acknowledges and level 0 follows after T_stable (re-acknowledgement allowed)
+PASS: the gate rises again
+PASS: the gate is UP with lights off
+=== part 6: the gate is killed (level 4, guard-ack)
+PASS: fresh system
+PASS: lgctl kill gate (exit 0)
+PASS: the supervisor restarts the gate (total 1) and it is RUNNING
+PASS: the new gate boots DOWN with the lights on
+PASS: the controller goes to level 4
+PASS: level 4 stays after the gate is back (no release without a guard)
+PASS: the gate is DOWN with the lights on
+PASS: an unknown guard id is refused (exit 4)
+PASS: the refusal is counted and level 4 stays
+PASS: a malformed guard id is rejected (exit 3)
+PASS: guard G01 acknowledges (exit 0)
+PASS: the controller counted the acknowledgement
+PASS: level 4 is left after T_stable (30 s), not at once
+--- level 0 reached, acknowledgements after the first: 0
+PASS: then it goes to level 0 (re-acknowledgement allowed)
+--- seconds from the acknowledgement to level 0: 30
+PASS: the gate rises
+PASS: gate UP with lights off
+=== part 7: an island sensor is killed (no island, no timetable: level 4)
+PASS: fresh system
+PASS: lgctl kill sensor west/island (exit 0)
+PASS: the controller goes to level 4
+PASS: the gate lowers
+PASS: the sensor is RUNNING again
+PASS: level 4 stays after the sensor is back
+--- level 0 reached, acknowledgements after the first: 0
+PASS: guard G01 acknowledges and level 0 follows after T_stable (re-acknowledgement allowed)
+PASS: the gate rises
+=== part 8: the plant is killed (it continues the scenario at the same epoch)
+PASS: fresh system
+PASS: plant time is running (more than 5 s)
+PASS: lgctl kill plant (exit 0)
+PASS: the supervisor restarts the plant (total 1) and it is RUNNING
+PASS: the plant device is back
+--- plant time before the kill: 12833 ms, 3 s after the restart: 15878 ms, wall seconds between: 3
+PASS: the scenario was continued, not replayed from 0 (plant time kept up with the wall clock)
+PASS: the plant restart is level 2 or level 4 (never 0, 1 or 3)
+--- level 3 s after the plant restart: 2 (2: sensors blind less than 200 ms, 4: 200 ms or more)
+PASS: level 2: the gate stays UP with the lights off
+PASS: level 2: back to level 0 after T_stable without a guard
+PASS: no guard acknowledgement was needed
+=== part 9: the supervisor is killed (the children keep running)
+PASS: fresh system
+PASS: the controller still runs
+PASS: all six sensors still run
+PASS: the gate still runs
+PASS: the plant still runs
+PASS: the controller notices the silent supervisor: level 4 within 8 s
+PASS: sup_silent is 1
+PASS: the gate is DOWN with the lights on
+PASS: nobody restarts a killed sensor now (five sensors left)
+=== part 10: supervisor and controller are killed together (the gate watchdog is the last line)
+PASS: fresh system
+PASS: the gate leaves UP within 3 s
+PASS: the gate reaches DOWN
+PASS: the gate watchdog tripped (trips grew)
+PASS: nobody started a controller again
+PASS: the gate stays DOWN
+=== part 11: the controller is stopped (SIGSTOP), not killed
+PASS: fresh system
+PASS: no heartbeat from the stopped controller: the supervisor kills it (why=hang)
+PASS: a new controller is RUNNING within 5 s
+PASS: the new controller has another pid
+PASS: the gate left UP (watchdog or boot lock of the new controller)
+--- table after the stop (information: did sensors that were waiting on the controller get restarted too):
+supervisor procs=11 budget=3 window_ms=10000 exits_ignored=0 hb_unknown=0 stalls=0
+proc=controller id=1 state=RUNNING phase=RUNNING pid=2122334238 restarts=1/3 total=1 why=hang recovery_ms=23 hb_rx=661 hb_ignored=0
+proc=gate id=2 state=RUNNING phase=RUNNING pid=2118299675 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=670 hb_ignored=0
+proc=sensor/west/a id=3 state=RUNNING phase=RUNNING pid=2118299676 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=669 hb_ignored=0
+proc=sensor/west/b id=4 state=RUNNING phase=RUNNING pid=2118299677 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=669 hb_ignored=0
+proc=sensor/west/island id=5 state=RUNNING phase=RUNNING pid=2122334243 restarts=1/3 total=1 why=hang recovery_ms=58 hb_rx=662 hb_ignored=0
+proc=sensor/east/a id=6 state=RUNNING phase=RUNNING pid=2118299679 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=669 hb_ignored=0
+proc=sensor/east/b id=7 state=RUNNING phase=RUNNING pid=2118299680 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=669 hb_ignored=0
+proc=sensor/east/island id=8 state=RUNNING phase=RUNNING pid=2118299681 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=669 hb_ignored=0
+proc=plant id=9 state=RUNNING phase=RUNNING pid=2118299682 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=401 hb_ignored=0
+proc=health id=10 state=RUNNING phase=RUNNING pid=2118303770 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=400 hb_ignored=0
+proc=bridge id=12 state=RUNNING phase=RUNNING pid=2118365221 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=470 hb_ignored=0
+controller_link linked=1 sent=212 failed=1 rejected=0 connects=2 hb_no_info=0 foreign_pulses=0
+PASS: no process was given up (none DEAD)
+PASS: the new controller is in level 4 (restart: guard needed)
+--- level 0 reached, acknowledgements after the first: 0
+PASS: guard G01 acknowledges and level 0 follows after T_stable (re-acknowledgement allowed)
+=== part 12: normal_day with lg-meter, three kills during the run
+PASS: the controller reaches RUNNING within 15 s
+PASS: the bridge, started last (Step 10), reaches RUNNING within 5 s
+PASS: all eleven rows are RUNNING
+PASS: the plant reaches 108 s
+PASS: kill west/a before train 3
+PASS: the plant reaches 158 s
+PASS: kill east/b before train 4 (east, strike at 160 s)
+PASS: the plant reaches 205 s
+PASS: kill the controller 5 s before train 5 (west, strike at 210 s)
+cat: /dev/lg/controller: No such file or directory
+PASS: the new controller is RUNNING and in level 4 (restart: no boot release)
+--- level 0 reached, acknowledgements after the first: 0
+PASS: guard G01 acknowledges and level 0 follows after T_stable (re-acknowledgement allowed)
+--- lg-meter output:
+key,value
+plant_end_ms,285002
+meter_samples,28478
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,28478
+meter_coverage_pct,100
+meter_max_gap_ms,16
+meter_max_sample_gap_ms,16
+trains,6
+trains_without_warning,0
+warning_count,6
+warning_max_ms,25771
+warning_avg_ms,18732
+closure_count,6
+closure_max_ms,34120
+closure_avg_ms,20938
+closed_ms,181682
+observed_ms,284770
+closure_ms_per_hour,2296784
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,0
+controller_cycles,0
+controller_level_end,99
+PASS: lg-meter exits 0 (no wrong-side event)
+PASS: wrong-side events: 0
+PASS: wrong-side ticks: 0
+PASS: the meter got a sample in at least 95 percent of its periods
+PASS: no gap between two meter samples above 200 ms
+PASS: the plant ran to the end of the scenario
+PASS: six trains crossed
+PASS: every train had its lights on before it reached the island
+PASS: the controller ends in level 0 (read live: the meter lost its descriptor when the controller was restarted)
+PASS: west/a, east/b and the controller were restarted once each
+PASS: nothing else was restarted and nothing is DEAD
+PASS: no process is DEAD
+PASS: the gate ends UP with the lights off
+--- metrics file /tmp/step08_metrics.csv:
+key,value
+plant_end_ms,285002
+meter_samples,28478
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,28478
+meter_coverage_pct,100
+meter_max_gap_ms,16
+meter_max_sample_gap_ms,16
+trains,6
+trains_without_warning,0
+warning_count,6
+warning_max_ms,25771
+warning_avg_ms,18732
+closure_count,6
+closure_max_ms,34120
+closure_avg_ms,20938
+closed_ms,181682
+observed_ms,284770
+closure_ms_per_hour,2296784
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,0
+controller_cycles,0
+controller_level_end,99
+--- controller: level=0 boot_lock=0 gate=UP gate_silent=0 target=UP lights=0 bell=0 active=0,0 activations=2 cycles=2 ticks=8010 late_ticks=8 samples=48020 rejected=0 gate_replies=8009 gate_timeouts=0 sup_armed=1 sup_silent=0 proc_status_rx=800 proc_status_rejected=0 proc_bad=0x0 guard_acks=1 tickets=0 sensor_failed=0x0 events=1 unmet=0x0,0x0 stalls=0 health_armed=1 health_silent=0 health_rx=1240 health_rejected=0 comp_bad=0x0 warnings=0 lead_times=0 last_lead_time_ms=0 health_unassessed=0 ignored_ticks=1 gate_connects=1 gate_dropped=0 guards=1 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+--- gate: state=UP position=0 current_ma=50 travel_ms=4001 fault=NONE factor_pct=100 lights=0 bell=0 target=UP watchdog_trips=0 rejected=0
+--- supervisor:
+supervisor procs=11 budget=3 window_ms=10000 exits_ignored=0 hb_unknown=0 stalls=0
+proc=controller id=1 state=RUNNING phase=RUNNING pid=53297191 restarts=0/3 total=1 why=exit recovery_ms=22 hb_rx=9506 hb_ignored=0
+proc=gate id=2 state=RUNNING phase=RUNNING pid=2133868571 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=9509 hb_ignored=0
+proc=sensor/west/a id=3 state=RUNNING phase=RUNNING pid=21643305 restarts=0/3 total=1 why=exit recovery_ms=15 hb_rx=9508 hb_ignored=0
+proc=sensor/west/b id=4 state=RUNNING phase=RUNNING pid=2133868573 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=9508 hb_ignored=0
+proc=sensor/west/island id=5 state=RUNNING phase=RUNNING pid=2133868574 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=9508 hb_ignored=0
+proc=sensor/east/a id=6 state=RUNNING phase=RUNNING pid=2133868575 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=9508 hb_ignored=0
+proc=sensor/east/b id=7 state=RUNNING phase=RUNNING pid=37982248 restarts=0/3 total=1 why=exit recovery_ms=21 hb_rx=9507 hb_ignored=0
+proc=sensor/east/island id=8 state=RUNNING phase=RUNNING pid=2133868577 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=9508 hb_ignored=0
+proc=plant id=9 state=RUNNING phase=RUNNING pid=2133868578 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=5704 hb_ignored=0
+proc=health id=10 state=RUNNING phase=RUNNING pid=2133872676 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=5703 hb_ignored=0
+proc=bridge id=12 state=RUNNING phase=RUNNING pid=2133905445 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=6728 hb_ignored=0
+controller_link linked=1 sent=2858 failed=1 rejected=0 connects=2 hb_no_info=0 foreign_pulses=0
+--- slog2info, supervisor lines of this run:
+Nov 23 14:17:30.677       lg_supervisor.2133860373                 main      0  sensor/west/b is now RESTARTING (restarts in window 0)
+Nov 23 14:17:30.677       lg_supervisor.2133860373                 main      0  sensor/west/island is now RESTARTING (restarts in window 0)
+Nov 23 14:17:30.677       lg_supervisor.2133860373                 main      0  sensor/east/a is now RESTARTING (restarts in window 0)
+Nov 23 14:17:30.677       lg_supervisor.2133860373                 main      0  sensor/east/b is now RESTARTING (restarts in window 0)
+Nov 23 14:17:30.677       lg_supervisor.2133860373                 main      0  sensor/east/island is now RESTARTING (restarts in window 0)
+Nov 23 14:17:30.677       lg_supervisor.2133860373                 main      0  plant is now RESTARTING (restarts in window 0)
+Nov 23 14:17:30.677       lg_supervisor.2133860373                 main      0  health is now RESTARTING (restarts in window 0)
+Nov 23 14:17:30.677       lg_supervisor.2133860373                 main      0  bridge is now RESTARTING (restarts in window 0)
+Nov 23 14:17:30.697       lg_supervisor.2133860373                 main      0  gate is now RUNNING (restarts in window 0)
+Nov 23 14:17:30.698       lg_supervisor.2133860373                 main      0  started sensor/west/a as pid 2133868572
+Nov 23 14:17:30.698       lg_supervisor.2133860373                 main      0  started sensor/west/b as pid 2133868573
+Nov 23 14:17:30.700       lg_supervisor.2133860373                 main      0  started sensor/west/island as pid 2133868574
+Nov 23 14:17:30.701       lg_supervisor.2133860373                 main      0  started sensor/east/a as pid 2133868575
+Nov 23 14:17:30.703       lg_supervisor.2133860373                 main      0  started sensor/east/b as pid 2133868576
+Nov 23 14:17:30.705       lg_supervisor.2133860373                 main      0  started sensor/east/island as pid 2133868577
+Nov 23 14:17:30.706       lg_supervisor.2133860373                 main      0  started plant as pid 2133868578
+Nov 23 14:17:30.726       lg_supervisor.2133860373                 main      0  sensor/west/a is now RUNNING (restarts in window 0)
+Nov 23 14:17:30.726       lg_supervisor.2133860373                 main      0  sensor/west/b is now RUNNING (restarts in window 0)
+Nov 23 14:17:30.726       lg_supervisor.2133860373                 main      0  sensor/west/island is now RUNNING (restarts in window 0)
+Nov 23 14:17:30.726       lg_supervisor.2133860373                 main      0  sensor/east/a is now RUNNING (restarts in window 0)
+Nov 23 14:17:30.726       lg_supervisor.2133860373                 main      0  sensor/east/b is now RUNNING (restarts in window 0)
+Nov 23 14:17:30.726       lg_supervisor.2133860373                 main      0  sensor/east/island is now RUNNING (restarts in window 0)
+Nov 23 14:17:30.767       lg_supervisor.2133860373                 main      0  started controller as pid 2133872675
+Nov 23 14:17:30.767       lg_supervisor.2133860373                 main      0  plant is now RUNNING (restarts in window 0)
+Nov 23 14:17:30.768       lg_supervisor.2133860373                 main      0  started health as pid 2133872676
+Nov 23 14:17:30.826       lg_supervisor.2133860373                 main      0  health is now RUNNING (restarts in window 0)
+Nov 23 14:17:30.827       lg_supervisor.2133860373                 main      0  started bridge as pid 2133905445
+Nov 23 14:17:30.857       lg_supervisor.2133860373                 main      0  bridge is now RUNNING (restarts in window 0)
+Nov 23 14:19:18.783       lg_supervisor.2133860373                 main      0  sensor/west/a (pid 2133868572) was killed by signal 9
+Nov 23 14:19:18.786       lg_supervisor.2133860373                 main      0  started sensor/west/a as pid 21643305
+Nov 23 14:19:18.786       lg_supervisor.2133860373                 main      0  sensor/west/a is now RESTARTING (restarts in window 1)
+Nov 23 14:19:18.806       lg_supervisor.2133860373                 main      0  sensor/west/a is now RUNNING (restarts in window 1)
+Nov 23 14:19:28.786       lg_supervisor.2133860373                 main      0  sensor/west/a is now RUNNING (restarts in window 0)
+Nov 23 14:20:08.757       lg_supervisor.2133860373                 main      0  sensor/east/b (pid 2133868576) was killed by signal 9
+Nov 23 14:20:08.767       lg_supervisor.2133860373                 main      0  started sensor/east/b as pid 37982248
+Nov 23 14:20:08.767       lg_supervisor.2133860373                 main      0  sensor/east/b is now RESTARTING (restarts in window 1)
+Nov 23 14:20:08.787       lg_supervisor.2133860373                 main      0  sensor/east/b is now RUNNING (restarts in window 1)
+Nov 23 14:20:18.767       lg_supervisor.2133860373                 main      0  sensor/east/b is now RUNNING (restarts in window 0)
+Nov 23 14:20:55.807       lg_supervisor.2133860373                 main      0  controller (pid 2133872675) was killed by signal 9
+Nov 23 14:20:55.817       lg_supervisor.2133860373                 main      0  started controller as pid 53297191
+=== RESULT: 152 checks, 0 failed

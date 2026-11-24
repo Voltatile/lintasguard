@@ -337,7 +337,7 @@ typedef struct {
 | `LG_MSG_SENSOR_SAMPLE` | sensor to controller | `dir`, `id`, `occupied`, `quality` (0..100), `axle_count`, `raw_level` |
 | `LG_MSG_GATE_CMD` | controller to gate | `cmd` (LOWER, RAISE, LIGHTS_ON, LIGHTS_OFF, BELL_ON, BELL_OFF), `deadline_ms` |
 | `LG_MSG_GATE_STATE` | gate to controller | `state` (UP, LOWERING, DOWN, RAISING, FAULT), `position_deg`, `current_ma`, `travel_ms` |
-| `LG_MSG_HEALTH_VERDICT` | health to controller | `component_id`, `score` (0..100), `verdict` (OK, WARNING, FAILED), `diagnosis_code`, `trend` |
+| `LG_MSG_HEALTH_VERDICT` | health to controller | `component_id`, `score` (0..100), `verdict` (OK, WARNING, FAILED), `diagnosis_code` (`lg_diag_t`), `trend_s_to_failure` (seconds of simulated time, -1 unknown), `flags` (`LG_HV_ASSESSED`: the verdict rests on data or a maintenance reset; an unassessed OK never replaces an earlier WARNING or FAILED) (`LG_PROTO_VERSION` 5, Step 11) |
 | `LG_MSG_PROC_STATUS` | supervisor to controller | `proc_id`, `state` (RUNNING, RESTARTING, DEAD), `restarts_in_window` |
 | `LG_MSG_SCHED_QUERY` / `LG_MSG_SCHED_REPLY` | controller to schedule | next expected train per direction: `eta_ns`, `confidence`, `source` (TIMETABLE, STATION) |
 | `LG_MSG_EVENT` | controller to bridge | level change, activation, clear, notification, metric |
@@ -350,7 +350,8 @@ Pulse codes (8-bit): `LG_PULSE_TICK`, `LG_PULSE_HEARTBEAT`, `LG_PULSE_HEALTH_REC
 | Path | read() returns | write() accepts | devctl |
 |---|---|---|---|
 | `/dev/lg/sensor/west/a` (and `west/b`, `east/a`, `east/b`, `west/island`, `east/island`) | latest sample as text (`occupied=1 quality=93 axles=8`) | not supported | `DCMD_LG_SENSOR_FAULT` (set fault mode), `DCMD_LG_SENSOR_STATS` (noise, dropouts) |
-| `/dev/lg/gate` | gate state as text | not supported (commands go via message passing) | `DCMD_LG_GATE_FAULT`, `DCMD_LG_GATE_STATS` |
+| `/dev/lg/gate` | gate state as text | not supported (commands go via message passing) | `DCMD_LG_GATE_FAULT`, `DCMD_LG_GATE_STATS` (movements, peak current, battery voltage since Step 11), `DCMD_LG_GATE_BATTERY` (battery drain) |
+| `/dev/lg/health` (Step 11) | one line per component: score, verdict, diagnosis, trend and the statistics behind them | not supported | `DCMD_LG_HEALTH_RESET` (forget a component after a repair; needs a descriptor opened for writing) |
 
 Text reads make the system inspectable from the QNX shell, which is great for the demo video and for judges.
 
@@ -378,6 +379,7 @@ Newline-delimited JSON over TCP (port 5555 by default), one ASCII line per objec
 - A state line every 100 ms. `level` is `null` when the controller could not be read, `gate` and `gate_position` are `null` when the gate could not be read (never a 0 that reads as level 0 or gate UP). `stale` is 1 when the device reader has not delivered for 1 s.
 - Level and notify lines carry the controller's `seq` and time; `reason` is a mode-manager reason code name. A client that connects later first gets the last 32 of them again (a dashboard opened after a ticket still shows it); deduplicate by `kind`, `seq` and `t`.
 - Metrics (`warning_time_ms`, `closure_ms_per_hour`, `trains`) are for display only; evidence numbers come from `lg-meter`.
+- Since Step 11 a notify line also carries `component` (`west/a` ... `gate`, `battery`; `sensor` is `none` for the gate and the battery) and, for an early warning, `trend_s` (seconds to failure estimated by `lg-health`). A WARNING episode that ends in FAILED adds a controller event `{"t":...,"seq":...,"kind":"metric","name":"lead_time_ms","component":"west/a","value":21900}`; it has a `seq` and is replayed and deduplicated like the other events.
 
 Inbound from the host, a strict whitelist: `{"kind":"subscribe"}` and `{"kind":"station_departure","dir":"west"|"east","eta_s":0..86400}`. Everything else (unknown kinds, extra fields, broken JSON, lines over 256 bytes) is answered with an `error` line and never acted on. **No inbound message can move the gate**: there is no such message type, and `lg-bridge` has no connection to the gate or the controller (checked by `tests/static/check_bridge_no_gate.sh` in `make test`). At most 8 clients; a client that does not read is dropped.
 
@@ -418,6 +420,16 @@ Battery (simulated): voltage trend; time-to-empty estimate.
 Score: weighted combination mapped to 0..100. Verdict: `OK` (score ≥ 70), `WARNING` (40 to 69), `FAILED` (< 40, or hard failures such as stuck, crash, hang). All thresholds in `config/thresholds.json`.
 
 Each verdict carries a human-readable **diagnosis** (for example, "noise rising for 3 days, likely connector corrosion or loose cable") and a **trend** (estimated days to failure), which go straight into maintenance notifications.
+
+**As built (Step 11, `core/health.c`, `target/lg-health`).** `lg-health` reads the cumulative counters of each device (`DCMD_LG_SENSOR_STATS`, `DCMD_LG_GATE_STATS`, read-only) every 200 ms, every 50 ms for a component that is not OK, so every statistic covers all 10 ms samples and no ground truth is used:
+
+- noise: mean |raw level - nominal level of the reading| / 4 per window = noise units; EWMA (1/8) and a one-sided CUSUM (slack 1 unit, alarm at 2 unit-seconds) against a baseline learned in the first 10 s (between 3 and 5 units). Score 100 at the baseline down to 40 at 30 units (FAILED before the noise can read a phantom train at about 37 units);
+- dropouts: ticks without a usable sample (none, or quality 0) per mille, EWMA; WARNING from 50, FAILED from 300;
+- approach pairs: response delay (rise later than the partner's rise of the same train) and disagreement (the partner completed a plausible run of 0.5 to 20 s and this sensor did not rise; only a sensor that is itself OK can accuse, a sensor stuck occupied accuses nobody; forgotten after one agreeing train);
+- gate: travel time and peak current of every completed movement against nominal, EWMA and CUSUM; FAILED at 175 % travel (5 s pre-warning + 7 s travel stays below the 13.3 s of the fastest train) or 200 % current, one such movement is enough;
+- battery (simulated in `lg-gate`, `lgctl battery drain`): voltage EWMA, slope, time to empty; WARNING below 600 s or 12.0 V, FAILED below 60 s or 11.0 V.
+
+A CUSUM alarm caps the score at 69: the early warning comes before the level threshold. A verdict gets worse at once and better only after 2 s at a score of 75 or more. The trend is in seconds of simulated time (degradation in the simulation takes seconds, not days). The controller merges the verdicts: the effective verdict of a component is the worse of its own fast rules (silence, staleness, blindness, stuck, gate FAULT) and the `lg-health` verdict, so `lg-health` can only make a component look worse. Level 1 changes nothing in the gate cycle. A component that was OK after the boot release and gets a WARNING raises one WARNING notification with diagnosis and trend; if the episode ends in FAILED the controller also records the metric `lead_time_ms`. `lg-health` silent for 2 s, or not heard yet when installed (`-H`), counts as a lost health monitor (level 2, boot lock kept).
 
 *Stretch:* replace or complement the statistical score with a small learned anomaly model (section 14).
 

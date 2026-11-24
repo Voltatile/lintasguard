@@ -116,6 +116,11 @@ lgctl sensor west/a fault drift 2
 lgctl kill sensor west/b
 lgctl kill bridge             # lg-bridge restarts; level 1 until T_stable, the gate is not affected
 cat /dev/lg/bridge            # bridge clients, drops, rejected inbound lines, replayed events
+cat /dev/lg/health            # lg-health: score, verdict, diagnosis, trend per component (lgctl health)
+lgctl gate fault slow 150     # gate wear (also high-current <pct>, stuck-up, stuck-down, none)
+lgctl battery drain 5         # backup battery drain in mV/s (0 = charger working)
+lgctl health reset gate       # after a repair: lg-health forgets what it learned about the gate
+lgctl kill health             # lg-health restarts; level 2 for the restart
 lgctl guard-ack --id G01
 ```
 

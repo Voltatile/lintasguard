@@ -1,0 +1,66 @@
+=== part 1: boot with the bridge
+PASS: fresh system (test_idle), bridge RUNNING
+PASS: every thread of lg-bridge runs at priority 10
+PASS: TCP port 5555 is listening
+PASS: /dev/lg/bridge reports port=5555
+PASS: /dev/lg/bridge refuses writes
+PASS: the device reader keeps taking snapshots (2 s: at least 10 more)
+PASS: the supervisor keeps receiving bridge heartbeats
+PASS: the gate is UP and dark
+--- /dev/lg/bridge:
+port=5555 clients=0 accepted=0 dropped_slow=0 refused_full=0 lines_sent=0 in_lines=0 in_subscribe=0 in_station=0 in_rejected=0 snapshots=147 stale_rounds=0 events_sent=1 events_replayed=0 events_dropped=0 refused_error=0
+=== part 2: kill the bridge once
+PASS: lgctl kill bridge: a new bridge is RUNNING within 5 s
+PASS: the supervisor counts one restart
+PASS: the controller goes to level 1 (bridge restarting = early warning) within 3 s
+PASS: the event ring holds the level change 0 -> 1, reason 5 (process restarting)
+PASS: level 1 holds and the gate stays UP and dark for 10 s
+PASS: level 0 again after T_stable (within 45 s)
+PASS: the gate is still UP and dark
+PASS: the new bridge listens on 5555
+--- /dev/lg/events:
+seq=1 t_ms=128368346 kind=LEVEL severity=INFO from=4 to=0 reason=2
+seq=2 t_ms=128375615 kind=LEVEL severity=WARNING from=0 to=1 reason=5
+seq=3 t_ms=128405656 kind=LEVEL severity=INFO from=1 to=0 reason=12
+=== part 3: kill the bridge until the restart budget is spent
+PASS: fresh system (test_idle), bridge RUNNING
+PASS: kill 1: replaced
+PASS: kill 2: replaced
+PASS: kill 3: replaced
+PASS: kill 4 accepted by lgctl
+PASS: budget spent (3 per 10 s): the bridge is DEAD within 5 s
+PASS: no lg-bridge process is left
+PASS: a dead bridge: level 1 within 3 s
+PASS: level 1 holds and the gate stays UP and dark for 10 s
+--- /dev/lg/supervisor:
+supervisor procs=11 budget=3 window_ms=10000 exits_ignored=0 hb_unknown=0 stalls=0
+proc=controller id=1 state=RUNNING phase=RUNNING pid=77205537 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=800 hb_ignored=0
+proc=gate id=2 state=RUNNING phase=RUNNING pid=77172761 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=804 hb_ignored=0
+proc=sensor/west/a id=3 state=RUNNING phase=RUNNING pid=77172762 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=803 hb_ignored=0
+proc=sensor/west/b id=4 state=RUNNING phase=RUNNING pid=77172763 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=802 hb_ignored=0
+proc=sensor/west/island id=5 state=RUNNING phase=RUNNING pid=77172764 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=802 hb_ignored=0
+proc=sensor/east/a id=6 state=RUNNING phase=RUNNING pid=77172765 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=803 hb_ignored=0
+proc=sensor/east/b id=7 state=RUNNING phase=RUNNING pid=77172766 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=802 hb_ignored=0
+proc=sensor/east/island id=8 state=RUNNING phase=RUNNING pid=77172767 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=803 hb_ignored=0
+proc=plant id=9 state=RUNNING phase=RUNNING pid=77172768 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=481 hb_ignored=0
+proc=health id=10 state=RUNNING phase=RUNNING pid=77205539 restarts=0/3 total=0 why=none recovery_ms=0 hb_rx=480 hb_ignored=0
+proc=bridge id=12 state=DEAD phase=DEAD pid=0 restarts=0/3 total=3 why=exit recovery_ms=25 hb_rx=310 hb_ignored=0
+controller_link linked=1 sent=262 failed=0 rejected=0 connects=1 hb_no_info=0 foreign_pulses=0
+=== part 4: the controller is stopped (SIGSTOP), the bridge keeps going
+PASS: fresh system (test_idle), bridge RUNNING
+PASS: the supervisor kills the stopped controller (why=hang)
+PASS: a new controller is RUNNING within 5 s
+PASS: the bridge kept its pid (not restarted)
+PASS: the bridge restart count is 0
+PASS: the supervisor kept receiving bridge heartbeats
+PASS: snapshots continue with the new controller (2 s: at least 10 more)
+--- /dev/lg/bridge:
+port=5555 clients=0 accepted=0 dropped_slow=0 refused_full=0 lines_sent=0 in_lines=0 in_subscribe=0 in_station=0 in_rejected=0 snapshots=167 stale_rounds=0 events_sent=1 events_replayed=0 events_dropped=0 refused_error=0
+=== part 5: boot with a bridge that cannot start (port 5555 and /dev/lg/bridge already taken)
+PASS: a stand-alone lg-bridge holds port 5555 and /dev/lg/bridge
+PASS: the supervisor's bridge cannot start: DEAD within 30 s (restart budget spent)
+PASS: the boot release still comes (bridge ignored for the boot), level 1 within 30 s
+PASS: the level change is 4 -> 1, reason 2 (boot released)
+PASS: the gate opens: UP within 10 s
+PASS: level 1 holds and the gate stays UP and dark for 5 s
+=== RESULT: 38 checks, 0 failed

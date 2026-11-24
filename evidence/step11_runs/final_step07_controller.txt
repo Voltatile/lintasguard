@@ -1,0 +1,139 @@
+=== part 1: boot without sensors
+PASS: gate boots DOWN
+PASS: the controller device appears
+PASS: the controller runs SCHED_FIFO priority 50, read back by the process itself
+PASS: the controller starts in level 4 with the gate target DOWN and lights and bell on
+PASS: writing to /dev/lg/controller is refused
+PASS: the controller found the gate and gets replies
+PASS: no sensor ever reported: level 4 after more than the boot check time
+PASS: no sensor ever reported: the gate is still DOWN with lights and bell on
+PASS: the gate watchdog did not trip (the controller keeps feeding it)
+=== part 2: boot release and idle (scenario without trains)
+PASS: all six sensors start
+PASS: boot check: level 0 once all six sensors are healthy
+PASS: the gate rises to UP and lights and bell go off
+PASS: gate UP with lights off
+PASS: samples keep arriving (600 per second expected, at least 500 in 3 s)
+PASS: no sample was rejected
+PASS: still level 0 and the gate still UP after 3 more seconds
+PASS: the watchdog did not trip while the controller is alive
+--- controller: level=0 boot_lock=0 gate=UP gate_silent=0 target=UP lights=0 bell=0 active=0,0 activations=0 cycles=0 ticks=2199 late_ticks=62 samples=8041 rejected=0 gate_replies=2198 gate_timeouts=0 sup_armed=0 sup_silent=0 proc_status_rx=0 proc_status_rejected=0 proc_bad=0x0 guard_acks=0 tickets=0 sensor_failed=0x0 events=1 unmet=0x0,0x0 stalls=0 health_armed=0 health_silent=0 health_rx=0 health_rejected=0 comp_bad=0x0 warnings=0 lead_times=0 last_lead_time_ms=0 health_unassessed=0 ignored_ticks=3 gate_connects=1 gate_dropped=0 guards=0 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+--- gate: state=UP position=0 current_ma=50 travel_ms=4005 fault=NONE factor_pct=100 lights=0 bell=0 target=UP watchdog_trips=0 rejected=0
+=== part 3: the controller is killed while the gate is UP
+PASS: the gate leaves UP by itself (watchdog)
+PASS: the gate reaches DOWN
+PASS: the watchdog tripped at least once
+PASS: a new controller starts in level 4 with the gate target DOWN
+PASS: the new controller is released by the boot check (sensors reconnected)
+PASS: the gate rises again
+PASS: samples reach the new controller
+=== part 4: the gate is stopped (SIGSTOP)
+PASS: found the gate process
+PASS: a gate that stops answering puts the controller in level 4
+PASS: the controller still answers while its gate is frozen
+FAIL: the controller counted the gate timeouts
+PASS: the continued gate goes DOWN
+PASS: level 4 stays after the gate answers again (only a guard may release it)
+PASS: the gate stays DOWN with the lights on
+PASS: the controller answered its status device in all 25 stop/continue cycles of the gate
+PASS: the controller counted dropped requests or timeouts while the gate was frozen (information, must exist)
+--- controller after the freeze cycles: level=4 boot_lock=0 gate=DOWN gate_silent=0 target=DOWN lights=1 bell=1 active=0,0 activations=0 cycles=0 ticks=3514 late_ticks=91 samples=21021 rejected=0 gate_replies=2609 gate_timeouts=472 sup_armed=0 sup_silent=0 proc_status_rx=0 proc_status_rejected=0 proc_bad=0x0 guard_acks=0 tickets=26 sensor_failed=0x0 events=54 unmet=0x0,0x0 stalls=1 health_armed=0 health_silent=0 health_rx=0 health_rejected=0 comp_bad=0x0 warnings=0 lead_times=0 last_lead_time_ms=0 health_unassessed=0 ignored_ticks=2 gate_connects=1 gate_dropped=435 guards=0 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+=== part 5: the plant disappears (sensors go blind) and comes back
+PASS: boot check after the restart: level 0
+PASS: the gate is UP again
+PASS: blind sensors (no truth, quality 0): level 4
+PASS: the gate lowers
+PASS: sensors see a plant again, but level 4 is not left without a guard
+PASS: the gate stays DOWN with the lights on
+=== part 6: normal_day with lg-meter
+PASS: all six sensors start
+--- lg-meter output:
+key,value
+plant_end_ms,285002
+meter_samples,28424
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,28424
+meter_coverage_pct,100
+meter_max_gap_ms,36
+meter_max_sample_gap_ms,36
+trains,6
+trains_without_warning,0
+warning_count,6
+warning_max_ms,19980
+warning_avg_ms,16282
+closure_count,6
+closure_max_ms,21112
+closure_avg_ms,14837
+closed_ms,145931
+observed_ms,284231
+closure_ms_per_hour,1848326
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,388
+controller_cycles,6
+controller_level_end,0
+--- guard acknowledgements sent during the run (a VM stall locked level 4): 0
+PASS: lg-meter exits 0 (no wrong-side event)
+PASS: wrong-side events: 0
+PASS: wrong-side ticks: 0
+PASS: the meter got a sample in at least 95 percent of its periods
+PASS: no gap between two meter samples above 200 ms
+PASS: the meter took a plausible number of samples (at least 15000)
+PASS: the plant ran to the end of the scenario
+PASS: six trains crossed
+PASS: every train had its lights on before it reached the island
+PASS: the controller ends in level 0
+PASS: the gate ends UP with the lights off
+PASS: no sample was rejected during the run
+PASS: the controller completed six gate cycles
+PASS: five or six gate closures were measured (the first may still be the boot closure)
+PASS: the watchdog never tripped during the run
+PASS: the only level change of the run is the boot release (4 to 0), seen in slog2
+--- metrics file /tmp/step07_metrics.csv:
+key,value
+plant_end_ms,285002
+meter_samples,28424
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,28424
+meter_coverage_pct,100
+meter_max_gap_ms,36
+meter_max_sample_gap_ms,36
+trains,6
+trains_without_warning,0
+warning_count,6
+warning_max_ms,19980
+warning_avg_ms,16282
+closure_count,6
+closure_max_ms,21112
+closure_avg_ms,14837
+closed_ms,145931
+observed_ms,284231
+closure_ms_per_hour,1848326
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,388
+controller_cycles,6
+controller_level_end,0
+--- controller: level=0 boot_lock=0 gate=UP gate_silent=0 target=UP lights=0 bell=0 active=0,0 activations=6 cycles=6 ticks=28512 late_ticks=388 samples=170752 rejected=0 gate_replies=28511 gate_timeouts=0 sup_armed=0 sup_silent=0 proc_status_rx=0 proc_status_rejected=0 proc_bad=0x0 guard_acks=0 tickets=0 sensor_failed=0x0 events=1 unmet=0x0,0x0 stalls=0 health_armed=0 health_silent=0 health_rx=0 health_rejected=0 comp_bad=0x0 warnings=0 lead_times=0 last_lead_time_ms=0 health_unassessed=0 ignored_ticks=9 gate_connects=1 gate_dropped=0 guards=1 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+--- gate: state=UP position=0 current_ma=50 travel_ms=4003 fault=NONE factor_pct=100 lights=0 bell=0 target=UP watchdog_trips=0 rejected=0
+--- slog2info, controller lines of this run:
+Nov 23 14:05:58.604       lg_controller.2017280026                 main*     0  running SCHED_FIFO priority 50
+Nov 23 14:05:58.604       lg_controller.2017280026                 main      0  1 guard id(s) may acknowledge level 4 (no PIN check yet)
+Nov 23 14:05:58.605       lg_controller.2017280026                 main      0  up: /dev/lg/controller and name lg/controller attached, level 4 (boot), tick 10 ms
+Nov 23 14:06:04.385       lg_controller.2017280026                 main      0  level 4 -> 0 (reason 2)
+Nov 23 14:06:04.385       lg_controller.2017280026                 main      0  event seq=1 t_ms=127387229 kind=LEVEL severity=INFO from=4 to=0 reason=2
+Nov 23 14:06:08.724       lg_controller.2017280026                 main      0  activation mask 0x1 (west=1 east=2), level 0
+Nov 23 14:06:32.014       lg_controller.2017280026                 main      0  cleared mask 0x1
+Nov 23 14:06:58.724       lg_controller.2017280026                 main      0  activation mask 0x2 (west=1 east=2), level 0
+Nov 23 14:07:28.834       lg_controller.2017280026                 main      0  cleared mask 0x2
+Nov 23 14:07:48.724       lg_controller.2017280026                 main      0  activation mask 0x1 (west=1 east=2), level 0
+Nov 23 14:08:07.784       lg_controller.2017280026                 main      0  cleared mask 0x1
+Nov 23 14:08:38.724       lg_controller.2017280026                 main      0  activation mask 0x2 (west=1 east=2), level 0
+Nov 23 14:09:05.365       lg_controller.2017280026                 main      0  cleared mask 0x2
+Nov 23 14:09:28.730       lg_controller.2017280026                 main      0  activation mask 0x1 (west=1 east=2), level 0
+Nov 23 14:09:52.010       lg_controller.2017280026                 main      0  cleared mask 0x1
+Nov 23 14:10:08.729       lg_controller.2017280026                 main      0  activation mask 0x2 (west=1 east=2), level 0
+Nov 23 14:10:29.370       lg_controller.2017280026                 main      0  cleared mask 0x2
+=== RESULT: 56 checks, 1 failed

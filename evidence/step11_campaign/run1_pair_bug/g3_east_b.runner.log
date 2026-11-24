@@ -1,0 +1,4 @@
+campaign sensor_faults: 1 case(s) on 192.168.56.102, commit b94bd3c (working tree has uncommitted changes)
+  stuck_clear_east_b_during_train (plant time up to 270 s) ...
+    FAIL (5 check(s)): max_level=2 tickets=1 recovery_inject_ms= wrong_side=0
+0 of 1 case(s) passed. Report: evidence\step11_campaign\final\g3_east_b.md  Raw output: evidence\step11_campaign\final\g3_east_b.txt
