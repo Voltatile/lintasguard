@@ -20,7 +20,13 @@
  *  - Lights and bell stay on until the gate is UP again.
  *  - A direction is cleared only when lg_clear_step says so AND no train of the same direction was
  *    seen approaching during the last T_clear (a following train, sensor flicker).
- *  - Interim health (replaced by lg-health in Step 11): a sensor is FAILED when it never sent a
+ *  - Health verdicts of lg-health (Step 11) are merged in: the effective verdict of a sensor, the gate
+ *    and the battery is the worse of the rules below and the latest lg-health verdict. A WARNING gives
+ *    level 1 and changes nothing in the gate cycle (README 3: road impact none). The rules below stay
+ *    as a fast safety net at the controller's priority (Decisions log, Step 11). lg-health silent for
+ *    health_silence_ms after it was heard, or not heard yet while health_required: treated like a health
+ *    process that is restarting (level 2; with health_required the boot lock stays).
+ *  - Interim health (kept as the controller's own rules in Step 11): a sensor is FAILED when it never sent a
  *    sample, was silent for sensor_silence_ms, or reported quality 0 for sensor_silence_ms in a row
  *    (Step 9; a single blind sample only makes the sensor unusable for that tick), otherwise OK. The gate is
  *    FAILED when it was silent for gate_silence_ms or reports FAULT.
@@ -68,16 +74,23 @@ typedef enum {
     LG_CTL_DIAG_STALE = 4,          /* samples arrive but are too old to use */
     LG_CTL_DIAG_BLIND = 5,          /* quality 0 */
     LG_CTL_DIAG_RESTARTING = 6,     /* the supervisor reports the sensor process RESTARTING */
-    LG_CTL_DIAG_PROC_DEAD = 7       /* the supervisor gave up on the sensor process (restart budget) */
+    LG_CTL_DIAG_PROC_DEAD = 7,      /* the supervisor gave up on the sensor process (restart budget) */
+    LG_CTL_DIAG_GATE_FAULT = 8,     /* the gate reports FAULT (a movement took far too long) */
+    LG_CTL_DIAG_HEALTH_BASE = 16    /* 16 + lg_diag_t: the diagnosis of an lg-health verdict (Step 11) */
 } lg_ctl_diag_t;
 
 /*
  * Controller events (README 7.2 LG_MSG_EVENT, Step 9): level changes, and a maintenance ticket when a
  * sensor that had been OK becomes FAILED (URGENT), plus an INFO event when it is OK again. Kept in a
  * fixed ring inside lg_ctl_t; the oldest entry is overwritten. lg-bridge (Step 10) reads the same ring.
+ * Step 11 (early warning): a component (sensor, gate, battery) that was OK and gets a WARNING raises a
+ * WARNING notification with the health diagnosis and trend (once per episode); the gate and the battery
+ * raise an URGENT ticket when FAILED; a WARNING episode that ends in FAILED adds a METRIC event
+ * lead_time_ms = time of the FAILED minus time of the first WARNING of the episode.
  */
 #define LG_CTL_EVENT_RING 32
 #define LG_CTL_EVENT_NO_SENSOR 0xFFu
+#define LG_CTL_EVENT_TEXT_MAX 256 /* every event text line fits (test_controller_health) */
 
 typedef struct {
     uint32_t seq;  /* 1, 2, ... since init; 0 = empty slot */
@@ -88,9 +101,12 @@ typedef struct {
     uint8_t level_to;   /* before the level change it causes (that one follows as its own event) */
     uint8_t dir;  /* lg_dir_t, or LG_CTL_EVENT_NO_SENSOR */
     uint8_t id;   /* lg_sensor_id_t, or LG_CTL_EVENT_NO_SENSOR */
-    uint8_t code; /* NOTIFY: lg_ctl_diag_t; LEVEL_CHANGE: lg_mode_reason_t */
-    uint8_t reserved;
+    uint8_t code; /* NOTIFY: lg_ctl_diag_t; LEVEL_CHANGE: lg_mode_reason_t; METRIC: lg_ctl_metric_t */
+    uint8_t comp; /* lg_component_t of a NOTIFY or METRIC, or LG_CTL_EVENT_NO_SENSOR */
+    int32_t value; /* NOTIFY: trend in seconds (-1 unknown); METRIC: the value */
 } lg_ctl_event_t;
+
+typedef enum { LG_CTL_METRIC_LEAD_TIME_MS = 1 } lg_ctl_metric_t;
 
 #define LG_CTL_UNMET_SAME_DIR (1u << 8) /* extra bit next to the LG_CLEAR_* mask */
 
@@ -105,6 +121,8 @@ typedef struct {
     uint32_t max_occupied_ms;    /* stuck rules: longest plausible occupied run of an approach sensor */
     uint32_t t_disagree_ms;      /* stuck rules: A/B edges this far apart still agree */
     uint32_t stall_ms;           /* a step this late after the previous one: the controller stalled */
+    uint32_t health_silence_ms;  /* lg-health heard once, then no verdict this long: health lost */
+    uint8_t health_required;     /* lg-health is installed (-H): no boot release before its verdicts */
     uint8_t restarted;           /* started by the supervisor after an earlier controller: no boot release */
 } lg_ctl_cfg_t;
 
@@ -189,6 +207,32 @@ typedef struct {
     uint32_t stalls;       /* steps that came stall_ms or more after the previous one */
     uint32_t tickets; /* URGENT maintenance tickets raised */
     uint32_t events;  /* events raised (= seq of the newest) */
+
+    /* Health verdicts from lg-health (Step 11). The effective verdict of a component is the worse of
+     * the controller's own rules and the latest lg-health verdict (lg-health can only make it worse). */
+    uint8_t health_seen[LG_COMP_COUNT];
+    uint8_t health_verdict[LG_COMP_COUNT]; /* lg_verdict_t, unknown values stored as FAILED */
+    uint8_t health_score[LG_COMP_COUNT];
+    uint8_t health_armed;  /* a verdict was received: from now on lg-health must keep talking */
+    uint8_t health_silent; /* latched: armed and silent for health_silence_ms, cleared by a verdict */
+    uint8_t reserved_h[2];
+    uint16_t health_diag[LG_COMP_COUNT];   /* lg_diag_t */
+    int32_t health_trend_s[LG_COMP_COUNT];
+    uint32_t health_rx_ms;
+    uint32_t health_rx;
+    uint32_t health_rejected;
+    uint32_t health_unassessed; /* OK verdicts not stored because they were not assessed (review M1) */
+
+    /* Early-warning episodes per component (Step 11). */
+    uint8_t comp_verdict[LG_COMP_COUNT]; /* effective verdict of the last step */
+    uint8_t comp_ever_ok[LG_COMP_COUNT];
+    uint8_t warn_open[LG_COMP_COUNT];    /* a WARNING episode is running since warn_since_ms */
+    uint8_t comp_ticket[LG_COMP_COUNT];  /* gate/battery: an URGENT ticket is open */
+    uint8_t comp_from_health[LG_COMP_COUNT]; /* the current non-OK verdict came from lg-health */
+    uint32_t warn_since_ms[LG_COMP_COUNT];
+    uint32_t warnings;          /* WARNING notifications raised */
+    uint32_t lead_times;        /* lead_time_ms metrics raised */
+    uint32_t last_lead_time_ms; /* the latest of them */
     lg_ctl_event_t ev[LG_CTL_EVENT_RING];
 } lg_ctl_t;
 
@@ -227,6 +271,22 @@ void lg_ctl_note_late(lg_ctl_t *c);
  * supervisor (hand-started processes) is never treated as having a dead one.
  */
 int lg_ctl_on_proc_status(lg_ctl_t *c, uint8_t proc, uint8_t state, uint8_t restarts, uint32_t now_ms);
+
+/*
+ * A verdict from lg-health (Step 11). Returns 0 when stored and -1 when refused (component outside the
+ * table, score above 100). A verdict outside lg_verdict_t is stored as FAILED (fails closed); a trend
+ * below -1 is stored as -1. Any accepted verdict arms the health silence check.
+ */
+int lg_ctl_on_health_verdict(lg_ctl_t *c, uint8_t comp, uint8_t score, uint8_t verdict, uint16_t diag,
+                             int32_t trend_s, uint32_t now_ms);
+
+/*
+ * The same with the verdict flags (LG_HV_*). A verdict without LG_HV_ASSESSED that would replace an earlier
+ * WARNING or FAILED by OK is not stored (it still counts as a sign of life): a restarted lg-health has not
+ * looked yet, which is no repair (review M1). lg_ctl_on_health_verdict = this with LG_HV_ASSESSED.
+ */
+int lg_ctl_on_health_verdict_flags(lg_ctl_t *c, uint8_t comp, uint8_t score, uint8_t verdict, uint16_t diag,
+                                   int32_t trend_s, uint8_t flags, uint32_t now_ms);
 
 /* Authorised guard acknowledgement, consumed by the next step (authentication is Step 13). */
 void lg_ctl_on_guard_ack(lg_ctl_t *c);

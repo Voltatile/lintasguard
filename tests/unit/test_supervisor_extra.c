@@ -238,8 +238,8 @@ static void test_heartbeat_edge_cases(void) {
     /* pid 0 never matches the empty pid of an IDLE process. */
     CHECK(lg_sup_on_heartbeat(&s, LG_PROC_GATE, 0, 10) == 0);
     CHECK(s.proc[LG_PROC_GATE].phase == LG_SUP_IDLE);
-    /* Not installed (supervisor, health, schedule, bridge) and outside the table. */
-    CHECK(lg_sup_on_heartbeat(&s, LG_PROC_HEALTH, 5, 10) == 0 && s.proc[LG_PROC_HEALTH].hb_ignored == 1);
+    /* Not installed (supervisor, schedule) and outside the table. */
+    CHECK(lg_sup_on_heartbeat(&s, LG_PROC_SCHEDULE, 5, 10) == 0 && s.proc[LG_PROC_SCHEDULE].hb_ignored == 1);
     CHECK(lg_sup_on_heartbeat(&s, LG_PROC_COUNT, 5, 10) == 0);
     CHECK(lg_sup_on_heartbeat(&s, 255, 5, 10) == 0);
     CHECK(s.hb_unknown == 2);
@@ -292,7 +292,7 @@ static void test_spawn_refusals(void) {
 
     lg_sup_init(&s, &c);
     CHECK(lg_sup_on_spawn(&s, LG_PROC_GATE, 0, 0) == -1);              /* pid 0 */
-    CHECK(lg_sup_on_spawn(&s, LG_PROC_HEALTH, 4, 0) == -1);            /* not installed */
+    CHECK(lg_sup_on_spawn(&s, LG_PROC_SCHEDULE, 4, 0) == -1);            /* not installed */
     CHECK(lg_sup_on_spawn(&s, LG_PROC_COUNT, 4, 0) == -1);             /* outside the table */
     CHECK(lg_sup_on_spawn(&s, 255, 4, 0) == -1);
     CHECK(lg_sup_on_spawn(&s, LG_PROC_GATE, 4, 0) == 0);
@@ -300,10 +300,10 @@ static void test_spawn_refusals(void) {
     CHECK(s.proc[LG_PROC_GATE].pid == 4);
     /* A failed spawn report for a process that is not IDLE or not installed changes nothing. */
     lg_sup_on_spawn_failed(&s, LG_PROC_GATE, 5);
-    lg_sup_on_spawn_failed(&s, LG_PROC_HEALTH, 5);
+    lg_sup_on_spawn_failed(&s, LG_PROC_SCHEDULE, 5);
     lg_sup_on_spawn_failed(&s, 255, 5);
     CHECK(s.proc[LG_PROC_GATE].phase == LG_SUP_STARTING && s.proc[LG_PROC_GATE].total_restarts == 0);
-    CHECK(s.proc[LG_PROC_HEALTH].total_restarts == 0);
+    CHECK(s.proc[LG_PROC_SCHEDULE].total_restarts == 0);
 }
 
 static void test_dead_is_absorbing(void) {
@@ -532,7 +532,7 @@ static void test_text_sizes(void) {
     }
     CHECK(lines == (size_t)installed_n + 1); /* no line was dropped for being too long (largest counters) */
     CHECK(strstr(big, "pid=4294967295") != NULL && strstr(big, "hb_ignored=4294967295\n") != NULL);
-    CHECK(strstr(big, "proc=sensor/east/island") != NULL && strstr(big, "proc=health") == NULL);
+    CHECK(strstr(big, "proc=sensor/east/island") != NULL && strstr(big, "proc=schedule") == NULL);
 
     /* Every length from 0 up: always NUL terminated, never beyond len, always cut at a line end. */
     for (len = 0; len <= full + 2 && len < sizeof small; len++) {

@@ -11,7 +11,7 @@
 
 #include <stdint.h>
 
-#define LG_PROTO_VERSION 4
+#define LG_PROTO_VERSION 5
 
 /*
  * Message types start above 0x1FF: QNX reserves 0x000 to 0x1FF for kernel and I/O messages
@@ -128,6 +128,25 @@ typedef enum {
 
 typedef enum { LG_SEV_INFO = 0, LG_SEV_WARNING = 1, LG_SEV_URGENT = 2 } lg_severity_t;
 
+/*
+ * Diagnosis codes of a health verdict (lg_health_verdict_t.diagnosis_code, README 8.3). The text that
+ * goes into a maintenance notification comes from lg_health_diag_text() in core/health.c.
+ */
+typedef enum {
+    LG_DIAG_NONE = 0,
+    LG_DIAG_NOISE_RISING = 1,      /* CUSUM on the noise: slow degradation (DRIFT) */
+    LG_DIAG_NOISE_HIGH = 2,        /* noise level above the warning or failure threshold */
+    LG_DIAG_DROPOUTS = 3,          /* missing or blind samples */
+    LG_DIAG_RESPONSE_DELAY = 4,    /* rises later than the partner sensor */
+    LG_DIAG_DISAGREEMENT = 5,      /* the partner saw a train this sensor did not (or the reverse) */
+    LG_DIAG_GATE_SLOW = 6,         /* travel time rising (mechanical wear) */
+    LG_DIAG_GATE_HIGH_CURRENT = 7, /* motor current rising */
+    LG_DIAG_BATTERY_DRAIN = 8,     /* voltage falling, time to empty short */
+    LG_DIAG_BATTERY_LOW = 9,       /* voltage below the threshold */
+    LG_DIAG_NO_DATA = 10,          /* the health monitor cannot read the device */
+    LG_DIAG_COUNT = 11
+} lg_diag_t;
+
 /* Guard actions requested through lgctl guard-ack. */
 typedef enum { LG_GUARD_ACTION_ACK = 1, LG_GUARD_ACTION_CONFIRM_CLEAR = 2 } lg_guard_action_t;
 
@@ -199,12 +218,19 @@ typedef struct {
     uint8_t component_id; /* lg_component_t */
     uint8_t score;        /* 0..100 */
     uint8_t verdict;      /* lg_verdict_t */
-    uint8_t reserved;
+    uint8_t flags;        /* LG_HV_* */
     uint16_t diagnosis_code;
     uint16_t reserved2;
-    int32_t trend_days_to_failure; /* estimated days, -1 = unknown */
+    int32_t trend_s_to_failure; /* estimated seconds (simulated time) until FAILED, -1 = unknown */
     uint32_t reserved3;
 } lg_health_verdict_t;
+
+/*
+ * lg_health_verdict_t.flags. ASSESSED: the verdict rests on data (or on a maintenance reset). A verdict
+ * without it (a health monitor that has just started and has not read the component yet) must not
+ * replace an earlier WARNING or FAILED: a restarted lg-health is not a repair (Step 11 review M1).
+ */
+#define LG_HV_ASSESSED 0x01u
 
 typedef struct {
     lg_hdr_t hdr;

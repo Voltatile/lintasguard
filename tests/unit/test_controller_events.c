@@ -309,7 +309,7 @@ static void test_event_text(void) {
     CHECK(lg_ctl_event_text(NULL, buf, sizeof buf) == 0 && buf[0] == '\0');
 }
 
-/* The worst-case status line must fit the readers: lg-meter reads it into 512 bytes. */
+/* The worst-case status line must fit the readers: lg-meter reads it into 1024 bytes (512 before Step 11). */
 static void test_status_worst_case_length(void) {
     lg_ctl_t c;
     lg_ctl_cfg_t cfg = lg_ctl_cfg_default();
@@ -330,6 +330,13 @@ static void test_status_worst_case_length(void) {
     c.gate_replies = c.gate_timeouts = c.proc_status_rx = c.proc_status_rejected = 0xFFFFFFFFu;
     c.guard_acks = c.tickets = c.events = 0xFFFFFFFFu;
     c.sup_armed = c.sup_silent = 255;
+    c.health_armed = c.health_silent = 255;
+    c.health_rx = c.health_rejected = c.warnings = c.lead_times = c.last_lead_time_ms = 0xFFFFFFFFu;
+    c.health_unassessed = 0xFFFFFFFFu;
+    c.stalls = 0xFFFFFFFFu;
+    for (i = 0; i < LG_COMP_COUNT; i++) {
+        c.comp_verdict[i] = LG_VERDICT_FAILED;
+    }
     for (i = 0; i < LG_PROC_COUNT; i++) {
         c.proc_state[i] = LG_PROC_DEAD;
     }
@@ -340,7 +347,7 @@ static void test_status_worst_case_length(void) {
     }
     n = lg_ctl_text(&c, buf, sizeof buf);
     printf("status worst case: %u bytes\n", (unsigned)n);
-    CHECK(n < 512);
+    CHECK(n < 800); /* well inside the 1024 of lg-meter, with room for later fields */
     CHECK(buf[n - 1] == '\n');
 }
 

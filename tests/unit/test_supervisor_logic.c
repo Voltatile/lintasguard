@@ -89,7 +89,7 @@ static void test_boot_order(void) {
     CHECK(count_kind(a, n, LG_SUP_ACT_SPAWN, -1) == 0); /* the gate has not beaten yet */
     CHECK(lg_sup_reported_state(&s, GATE) == LG_PROC_RESTARTING);
     CHECK(lg_sup_reported_state(&s, CTL) == LG_PROC_RESTARTING);
-    CHECK(lg_sup_reported_state(&s, LG_PROC_HEALTH) == LG_PROC_RUNNING); /* not installed */
+    CHECK(lg_sup_reported_state(&s, LG_PROC_SCHEDULE) == LG_PROC_RUNNING); /* not installed */
     CHECK(lg_sup_on_heartbeat(&s, GATE, 500, 20) == 1);
     n = step(&s, 30, a);
     CHECK(count_kind(a, n, LG_SUP_ACT_SPAWN, -1) == 7); /* plant and six sensors */
@@ -360,7 +360,7 @@ static void test_unknown_input(void) {
     CHECK(lg_sup_on_heartbeat(&s, GATE, 0, t) == 0);           /* pid 0 never matches */
     CHECK(lg_sup_on_heartbeat(&s, GATE, s.proc[GATE].pid + 1, t) == 0);
     CHECK(lg_sup_on_spawn(&s, GATE, 77, t) == -1); /* not IDLE */
-    CHECK(lg_sup_on_spawn(&s, LG_PROC_HEALTH, 77, t) == -1);
+    CHECK(lg_sup_on_spawn(&s, LG_PROC_SCHEDULE, 77, t) == -1);
     CHECK(s.proc[GATE].phase == LG_SUP_RUNNING);
 }
 
@@ -373,8 +373,8 @@ static void test_status_actions(void) {
 
     lg_sup_init(&s, &cfg);
     n = lg_sup_step(&s, 0, a, LG_SUP_MAX_ACTIONS);
-    CHECK(count_kind(a, n, LG_SUP_ACT_STATUS, -1) == 10); /* gate, plant, six sensors, controller, bridge (Step 10) */
-    CHECK(count_kind(a, n, LG_SUP_ACT_STATUS, LG_PROC_HEALTH) == 0);
+    CHECK(count_kind(a, n, LG_SUP_ACT_STATUS, -1) == 11); /* gate, plant, six sensors, controller, bridge (Step 10), health (Step 11) */
+    CHECK(count_kind(a, n, LG_SUP_ACT_STATUS, LG_PROC_SCHEDULE) == 0);
     t = boot(&s, 10);
     CHECK(t != 0);
     n = lg_sup_step(&s, t + 10, a, LG_SUP_MAX_ACTIONS);
@@ -437,7 +437,8 @@ static void test_text(void) {
     CHECK(strstr(buf, "proc=sensor/west/a id=3") != NULL);
     CHECK(strstr(buf, "proc=sensor/east/island id=8") != NULL);
     CHECK(strstr(buf, "proc=bridge id=12") != NULL); /* installed since Step 10 */
-    CHECK(strstr(buf, "proc=health") == NULL);      /* not installed (Step 11) */
+    CHECK(strstr(buf, "proc=health id=10") != NULL);   /* installed since Step 11 */
+    CHECK(strstr(buf, "proc=schedule") == NULL);       /* not installed (Step 12) */
     CHECK(strstr(buf, "restarts=0/3") != NULL);
     /* A small buffer is cut at a line end and stays NUL terminated. */
     n = lg_sup_text(&s, t, small, sizeof small);

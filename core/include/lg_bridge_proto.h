@@ -77,18 +77,24 @@ int lg_bridge_from_plant(lg_bridge_state_t *s, const char *text); /* also the "t
 typedef struct {
     uint32_t seq;
     uint32_t t_ms;
-    uint8_t kind; /* 1 level change, 2 notify */
-    uint8_t reserved[3];
+    uint8_t kind; /* 1 level change, 2 notify, 3 metric (Step 11) */
+    uint8_t has_trend; /* notify: trend_s was given and is >= 0 */
+    uint8_t reserved[2];
     uint32_t from;
     uint32_t to;
     uint32_t reason;
-    char severity[10]; /* INFO, WARNING, URGENT */
-    char sensor[16];   /* west/a ... */
+    char severity[10];  /* INFO, WARNING, URGENT */
+    char sensor[16];    /* west/a ... or none (gate, battery) */
     char diag[20];
+    char component[16]; /* west/a ... gate, battery (Step 11); the sensor when the line has none */
+    char name[20];      /* metric: lead_time_ms */
+    int32_t trend_s;    /* notify: seconds to failure estimated by lg-health */
+    int64_t value;      /* metric */
 } lg_bridge_event_t;
 
 #define LG_BRIDGE_EV_LEVEL 1
 #define LG_BRIDGE_EV_NOTIFY 2
+#define LG_BRIDGE_EV_METRIC 3
 
 int lg_bridge_parse_event(const char *line, lg_bridge_event_t *ev); /* 0 ok, -1 not an event line */
 

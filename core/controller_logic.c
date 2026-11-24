@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "lg_gate_model.h"
+#include "lg_health.h"
 #include "lg_time.h"
 
 lg_ctl_cfg_t lg_ctl_cfg_default(void) {
@@ -19,6 +20,8 @@ lg_ctl_cfg_t lg_ctl_cfg_default(void) {
     c.max_occupied_ms = LG_SENSOR_MAX_OCCUPIED_MS;
     c.t_disagree_ms = LG_T_DISAGREE_MS;
     c.stall_ms = LG_CTL_STALL_MS;
+    c.health_silence_ms = LG_CTL_HEALTH_SILENCE_MS;
+    c.health_required = 0;
     c.restarted = 0;
     return c;
 }
@@ -40,6 +43,10 @@ void lg_ctl_init(lg_ctl_t *c, const lg_ctl_cfg_t *cfg, uint32_t now_ms) {
         for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
             c->last_verdict[d][i] = LG_VERDICT_FAILED; /* nothing received yet */
         }
+    }
+    for (d = 0; d < LG_COMP_COUNT; d++) {
+        c->comp_verdict[d] = LG_VERDICT_FAILED; /* nothing known yet */
+        c->health_trend_s[d] = -1;
     }
     if (cfg->restarted) {
         lg_mode_init_restarted(&c->mode, now_ms);
@@ -88,6 +95,42 @@ void lg_ctl_note_gate_timeout(lg_ctl_t *c) {
 
 void lg_ctl_note_late(lg_ctl_t *c) {
     c->late_ticks++;
+}
+
+int lg_ctl_on_health_verdict(lg_ctl_t *c, uint8_t comp, uint8_t score, uint8_t verdict, uint16_t diag,
+                             int32_t trend_s, uint32_t now_ms) {
+    return lg_ctl_on_health_verdict_flags(c, comp, score, verdict, diag, trend_s, LG_HV_ASSESSED, now_ms);
+}
+
+int lg_ctl_on_health_verdict_flags(lg_ctl_t *c, uint8_t comp, uint8_t score, uint8_t verdict, uint16_t diag,
+                                   int32_t trend_s, uint8_t flags, uint32_t now_ms) {
+    if (comp >= LG_COMP_COUNT || score > 100) {
+        c->health_rejected++;
+        return -1;
+    }
+    if (verdict != LG_VERDICT_OK && verdict != LG_VERDICT_WARNING) {
+        verdict = LG_VERDICT_FAILED; /* FAILED or unknown: fails closed */
+    }
+    if ((flags & LG_HV_ASSESSED) == 0 && verdict == LG_VERDICT_OK && c->health_seen[comp] &&
+        c->health_verdict[comp] != LG_VERDICT_OK) {
+        /* Not looked at yet (a restarted lg-health): keep the earlier verdict, count the sign of life. */
+        c->health_armed = 1;
+        c->health_silent = 0;
+        c->health_rx_ms = now_ms;
+        c->health_rx++;
+        c->health_unassessed++;
+        return 0;
+    }
+    c->health_seen[comp] = 1;
+    c->health_verdict[comp] = verdict;
+    c->health_score[comp] = score;
+    c->health_diag[comp] = diag;
+    c->health_trend_s[comp] = trend_s < -1 ? -1 : trend_s;
+    c->health_armed = 1;
+    c->health_silent = 0;
+    c->health_rx_ms = now_ms;
+    c->health_rx++;
+    return 0;
 }
 
 void lg_ctl_on_guard_ack(lg_ctl_t *c) {
@@ -302,6 +345,116 @@ static void ev_push(lg_ctl_t *c, uint32_t now_ms, uint8_t kind, uint8_t sev, uin
     e->dir = dir;
     e->id = id;
     e->code = code;
+    e->comp = (dir < LG_DIR_COUNT && id < LG_SENSOR_ID_COUNT) ? (uint8_t)(dir * LG_SENSOR_ID_COUNT + id)
+                                                              : (uint8_t)LG_CTL_EVENT_NO_SENSOR;
+    e->value = kind == LG_EVT_NOTIFY ? -1 : 0; /* NOTIFY: no trend known (-1), not "0 s to failure" */
+}
+
+/* An event about a component (sensor, gate or battery) with a value. */
+static void ev_push_comp(lg_ctl_t *c, uint32_t now_ms, uint8_t kind, uint8_t sev, uint8_t comp, uint8_t code,
+                         int32_t value) {
+    uint8_t dir = LG_CTL_EVENT_NO_SENSOR;
+    uint8_t id = LG_CTL_EVENT_NO_SENSOR;
+    lg_ctl_event_t *e;
+
+    if (comp <= LG_COMP_SENSOR_LAST) {
+        dir = (uint8_t)(comp / LG_SENSOR_ID_COUNT);
+        id = (uint8_t)(comp % LG_SENSOR_ID_COUNT);
+    }
+    ev_push(c, now_ms, kind, sev, c->mode.level, c->mode.level, dir, id, code);
+    e = &c->ev[(c->events - 1u) % LG_CTL_EVENT_RING];
+    e->comp = comp;
+    e->value = value;
+}
+
+/* The diagnosis code of the lg-health verdict of a component, as an lg_ctl_diag_t. */
+static uint8_t health_cause(const lg_ctl_t *c, uint8_t comp) {
+    uint16_t d = c->health_diag[comp];
+
+    if (d >= LG_DIAG_COUNT) {
+        d = LG_DIAG_NONE;
+    }
+    return (uint8_t)(LG_CTL_DIAG_HEALTH_BASE + d);
+}
+
+/* The worse of the controller's own verdict and the lg-health verdict of a component. */
+static uint8_t merge_health(const lg_ctl_t *c, uint8_t comp, uint8_t own) {
+    uint8_t hv;
+
+    if (!c->health_armed || !c->health_seen[comp]) {
+        return own;
+    }
+    hv = c->health_verdict[comp];
+    if (c->health_silent && hv != LG_VERDICT_FAILED) {
+        hv = LG_VERDICT_OK; /* a silent monitor's WARNING lapses; its FAILED stays (silence is not a repair) */
+    }
+    return hv > own ? hv : own;
+}
+
+/*
+ * Early-warning episodes (Step 11), for every component, on the effective verdicts:
+ *  - OK -> WARNING (the component was OK once after the boot release): WARNING notification with diagnosis and trend; the
+ *    episode starts.
+ *  - -> FAILED: a running episode ends with the METRIC lead_time_ms; the gate and the battery raise an
+ *    URGENT ticket (the sensors get theirs from sensor_tickets).
+ *  - -> OK: an INFO event when a WARNING episode or a gate/battery ticket was open.
+ * gate_own_cause: the cause the controller's own rules give for a gate that is FAILED.
+ */
+static void health_events(lg_ctl_t *c, const uint8_t eff[LG_COMP_COUNT], uint8_t gate_own_cause,
+                          uint32_t now_ms) {
+    uint8_t k;
+
+    for (k = 0; k < LG_COMP_COUNT; k++) {
+        uint8_t v = eff[k];
+        uint8_t prev = c->comp_verdict[k];
+        uint8_t from_health = (uint8_t)(c->health_armed && c->health_seen[k] && c->health_verdict[k] == v);
+        uint8_t code = from_health ? health_cause(c, k)
+                                   : (k == LG_COMP_GATE ? gate_own_cause : (uint8_t)LG_CTL_DIAG_NONE);
+
+        if (c->health_silent && v == LG_VERDICT_OK && prev != LG_VERDICT_OK && c->comp_from_health[k]) {
+            /* OK only because lg-health went silent: not a repair. Keep the episode and the ticket
+             * (no false INFO now, no second ticket when lg-health comes back; found by the tester). */
+            continue;
+        }
+        if (v == LG_VERDICT_OK) {
+            if (prev != LG_VERDICT_OK && c->comp_ever_ok[k] && (c->warn_open[k] || c->comp_ticket[k])) {
+                ev_push_comp(c, now_ms, LG_EVT_NOTIFY, LG_SEV_INFO, k, LG_CTL_DIAG_NONE, -1);
+            }
+            c->warn_open[k] = 0;
+            c->comp_ticket[k] = 0;
+            /* "Was fine once" counts only after the boot release: a start-up transient (blind samples
+             * until the plant answers) is no maintenance case, level 4 holds the gate down anyway. */
+            if (!c->mode.boot_lock) {
+                c->comp_ever_ok[k] = 1;
+            }
+        } else if (v == LG_VERDICT_WARNING) {
+            if (prev == LG_VERDICT_OK && c->comp_ever_ok[k] && !c->warn_open[k]) {
+                c->warn_open[k] = 1;
+                c->warn_since_ms[k] = now_ms;
+                c->warnings++;
+                ev_push_comp(c, now_ms, LG_EVT_NOTIFY, LG_SEV_WARNING, k, code,
+                             from_health ? c->health_trend_s[k] : -1);
+            }
+        } else if (prev != LG_VERDICT_FAILED) {
+            /* The ticket first, then the lead time (the same order as for a sensor). */
+            if (k > LG_COMP_SENSOR_LAST && c->comp_ever_ok[k] && !c->comp_ticket[k]) {
+                c->comp_ticket[k] = 1;
+                c->tickets++;
+                ev_push_comp(c, now_ms, LG_EVT_NOTIFY, LG_SEV_URGENT, k, code, -1);
+            }
+            if (c->warn_open[k]) {
+                uint32_t lead = now_ms - c->warn_since_ms[k];
+
+                c->warn_open[k] = 0;
+                c->lead_times++;
+                c->last_lead_time_ms = lead;
+                ev_push_comp(c, now_ms, LG_EVT_METRIC, LG_SEV_INFO, k, LG_CTL_METRIC_LEAD_TIME_MS,
+                             lead > 0x7FFFFFFFu ? 0x7FFFFFFF : (int32_t)lead);
+            }
+        }
+        c->comp_verdict[k] = v;
+        c->comp_from_health[k] = (uint8_t)(v != LG_VERDICT_OK && from_health);
+    }
 }
 
 /* Why a FAILED sensor is FAILED (the first cause that applies). */
@@ -339,8 +492,17 @@ static void sensor_tickets(lg_ctl_t *c, const lg_vsensor_t vs[LG_DIR_COUNT][LG_S
                 cause = LG_CTL_DIAG_RESTARTING;
             } else if (v == LG_VERDICT_FAILED) {
                 cause = sensor_cause(&c->sensor[d][i], (uint8_t)i);
+                if (cause == LG_CTL_DIAG_NONE) {
+                    cause = health_cause(c, (uint8_t)(d * LG_SENSOR_ID_COUNT + i)); /* FAILED by lg-health */
+                }
             } else {
                 cause = LG_CTL_DIAG_NONE;
+            }
+            if (cause == LG_CTL_DIAG_NONE && v == LG_VERDICT_OK && c->health_silent && c->ticket_open[d][i] &&
+                c->ticket_code[d][i] >= LG_CTL_DIAG_HEALTH_BASE) {
+                /* OK only because lg-health went silent: not a repair, the ticket stays open (tester). */
+                c->last_verdict[d][i] = v;
+                continue;
             }
             if (cause == LG_CTL_DIAG_NONE && v == LG_VERDICT_OK) {
                 if (c->ticket_open[d][i]) {
@@ -418,6 +580,9 @@ static void stall_shift(lg_ctl_t *c, uint32_t gap_ms) {
     if (c->sup_armed) {
         shift_old(&c->sup_rx_ms, last, gap_ms);
     }
+    if (c->health_armed) {
+        shift_old(&c->health_rx_ms, last, gap_ms);
+    }
     if (c->mode.timing) {
         shift_old(&c->mode.since_ms, last, gap_ms);
     }
@@ -466,6 +631,11 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
     c->last_step_ms = now_ms;
     c->ticks++;
 
+    /* lg-health silent after it was heard: its verdicts no longer count (latched until the next one). */
+    if (c->health_armed && lg_elapsed_ge(now_ms, c->health_rx_ms, c->cfg.health_silence_ms)) {
+        c->health_silent = 1;
+    }
+
     /*
      * Interim health: sensor verdicts from the samples (silence, staleness, blindness), then the stuck
      * rules on the approach pairs, gate verdict from its replies.
@@ -477,11 +647,17 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
             base[i] = sensor_verdict(c, &c->sensor[d][i], now_ms);
         }
         /* Alive for the stuck rules: OK and not blind (a blind sample says occupied 0 without seeing). */
+        /* A sensor that lg-health declared FAILED is not alive either: its phantom trains (noise) must
+         * not make the healthy partner look stuck clear (test_controller_health). */
         stuck_step(&c->cfg, &c->sensor[d][LG_SENSOR_A], &c->sensor[d][LG_SENSOR_B],
                    base[LG_SENSOR_A] == LG_VERDICT_OK &&
-                       c->sensor[d][LG_SENSOR_A].quality >= LG_SENSOR_QUALITY_USABLE_MIN,
+                       c->sensor[d][LG_SENSOR_A].quality >= LG_SENSOR_QUALITY_USABLE_MIN &&
+                       merge_health(c, (uint8_t)(d * LG_SENSOR_ID_COUNT + LG_SENSOR_A), LG_VERDICT_OK) !=
+                           LG_VERDICT_FAILED,
                    base[LG_SENSOR_B] == LG_VERDICT_OK &&
-                       c->sensor[d][LG_SENSOR_B].quality >= LG_SENSOR_QUALITY_USABLE_MIN,
+                       c->sensor[d][LG_SENSOR_B].quality >= LG_SENSOR_QUALITY_USABLE_MIN &&
+                       merge_health(c, (uint8_t)(d * LG_SENSOR_ID_COUNT + LG_SENSOR_B), LG_VERDICT_OK) !=
+                           LG_VERDICT_FAILED,
                    now_ms);
         for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
             lg_ctl_sensor_t *s = &c->sensor[d][i];
@@ -490,6 +666,7 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
             if (i != LG_SENSOR_ISLAND && s->stuck != LG_CTL_DIAG_NONE) {
                 v = LG_VERDICT_FAILED; /* isolated: the vote ignores it */
             }
+            v = merge_health(c, (uint8_t)(d * LG_SENSOR_ID_COUNT + i), v); /* FAILED: isolated as well */
             vs[d][i] = to_vsensor(s, v, now_ms);
         }
     }
@@ -526,6 +703,10 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
     } else {
         in.verdict[LG_COMP_GATE] = LG_VERDICT_OK;
     }
+    in.verdict[LG_COMP_GATE] = merge_health(c, LG_COMP_GATE, in.verdict[LG_COMP_GATE]);
+    in.verdict[LG_COMP_BATTERY] = merge_health(c, LG_COMP_BATTERY, LG_VERDICT_OK);
+    health_events(c, in.verdict, gate_silent ? (uint8_t)LG_CTL_DIAG_SILENT : (uint8_t)LG_CTL_DIAG_GATE_FAULT,
+                  now_ms);
     /* Supervisor reports. The supervisor itself is judged by its silence once it has been heard. */
     if (c->sup_armed && lg_elapsed_ge(now_ms, c->sup_rx_ms, c->cfg.sup_silence_ms)) {
         c->sup_silent = 1; /* latched like the sensor silence: the 32-bit clock must not revive it */
@@ -534,6 +715,12 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
         in.proc_state[i] = c->proc_state[i];
     }
     in.proc_state[LG_PROC_SUPERVISOR] = c->sup_silent ? (uint8_t)LG_PROC_DEAD : (uint8_t)LG_PROC_RUNNING;
+    /* lg-health lost (silent after it was heard) or, when it is installed, not heard yet: like a health
+     * process that is restarting (level 2; the boot lock stays until it reports). */
+    if ((c->health_silent || (c->cfg.health_required && !c->health_armed)) &&
+        in.proc_state[LG_PROC_HEALTH] == LG_PROC_RUNNING) {
+        in.proc_state[LG_PROC_HEALTH] = LG_PROC_RESTARTING;
+    }
     in.self_check_ok = (uint8_t)!gate_silent;
     in.guard_ack = c->guard_ack_pending;
     c->guard_ack_pending = 0;
@@ -691,7 +878,12 @@ const char *lg_ctl_diag_name(uint8_t diag) {
     case LG_CTL_DIAG_BLIND: return "BLIND";
     case LG_CTL_DIAG_RESTARTING: return "RESTARTING";
     case LG_CTL_DIAG_PROC_DEAD: return "PROC_DEAD";
-    default: return "UNKNOWN";
+    case LG_CTL_DIAG_GATE_FAULT: return "GATE_FAULT";
+    default:
+        if (diag >= LG_CTL_DIAG_HEALTH_BASE && diag < LG_CTL_DIAG_HEALTH_BASE + LG_DIAG_COUNT) {
+            return lg_health_diag_name((uint16_t)(diag - LG_CTL_DIAG_HEALTH_BASE));
+        }
+        return "UNKNOWN";
     }
 }
 
@@ -709,11 +901,21 @@ size_t lg_ctl_event_text(const lg_ctl_event_t *e, char *buf, size_t len) {
         n = snprintf(buf, len, "seq=%u t_ms=%u kind=LEVEL severity=%s from=%u to=%u reason=%u\n",
                      (unsigned)e->seq, (unsigned)e->t_ms, severity_name(e->severity),
                      (unsigned)e->level_from, (unsigned)e->level_to, (unsigned)e->code);
-    } else if (e->kind == LG_EVT_NOTIFY) {
+    } else if (e->kind == LG_EVT_NOTIFY && e->comp <= LG_COMP_SENSOR_LAST) {
         n = snprintf(buf, len, "seq=%u t_ms=%u kind=NOTIFY severity=%s to=maintenance sensor=%s/%s diag=%s "
-                     "level=%u\n",
+                     "level=%u component=%s trend_s=%d\n",
                      (unsigned)e->seq, (unsigned)e->t_ms, severity_name(e->severity), dir_name(e->dir),
-                     sensor_id_name(e->id), lg_ctl_diag_name(e->code), (unsigned)e->level_to);
+                     sensor_id_name(e->id), lg_ctl_diag_name(e->code), (unsigned)e->level_to,
+                     lg_health_comp_name(e->comp), (int)e->value);
+    } else if (e->kind == LG_EVT_NOTIFY) {
+        n = snprintf(buf, len, "seq=%u t_ms=%u kind=NOTIFY severity=%s to=maintenance sensor=none diag=%s "
+                     "level=%u component=%s trend_s=%d\n",
+                     (unsigned)e->seq, (unsigned)e->t_ms, severity_name(e->severity), lg_ctl_diag_name(e->code),
+                     (unsigned)e->level_to, lg_health_comp_name(e->comp), (int)e->value);
+    } else if (e->kind == LG_EVT_METRIC) {
+        n = snprintf(buf, len, "seq=%u t_ms=%u kind=METRIC name=%s component=%s value=%d\n", (unsigned)e->seq,
+                     (unsigned)e->t_ms, e->code == LG_CTL_METRIC_LEAD_TIME_MS ? "lead_time_ms" : "unknown",
+                     lg_health_comp_name(e->comp), (int)e->value);
     } else {
         n = snprintf(buf, len, "seq=%u t_ms=%u kind=UNKNOWN code=%u\n", (unsigned)e->seq,
                      (unsigned)e->t_ms, (unsigned)e->code);
@@ -733,6 +935,7 @@ size_t lg_ctl_text(const lg_ctl_t *c, char *buf, size_t len) {
     int n;
     unsigned proc_bad = 0;
     unsigned sensor_failed = 0;
+    unsigned comp_bad = 0;
     int i;
     int d;
 
@@ -742,6 +945,11 @@ size_t lg_ctl_text(const lg_ctl_t *c, char *buf, size_t len) {
     for (i = 0; i < LG_PROC_COUNT; i++) {
         if (c->proc_state[i] != LG_PROC_RUNNING) {
             proc_bad |= 1u << i;
+        }
+    }
+    for (i = 0; i < LG_COMP_COUNT; i++) {
+        if (c->comp_verdict[i] != LG_VERDICT_OK) {
+            comp_bad |= 1u << i;
         }
     }
     for (d = 0; d < LG_DIR_COUNT; d++) {
@@ -756,7 +964,8 @@ size_t lg_ctl_text(const lg_ctl_t *c, char *buf, size_t len) {
                  "activations=%u cycles=%u ticks=%u late_ticks=%u samples=%u rejected=%u "
                  "gate_replies=%u gate_timeouts=%u sup_armed=%u sup_silent=%u proc_status_rx=%u "
                  "proc_status_rejected=%u proc_bad=0x%x guard_acks=%u tickets=%u sensor_failed=0x%x "
-                 "events=%u unmet=0x%x,0x%x stalls=%u\n",
+                 "events=%u unmet=0x%x,0x%x stalls=%u health_armed=%u health_silent=%u health_rx=%u "
+                 "health_rejected=%u comp_bad=0x%x warnings=%u lead_times=%u last_lead_time_ms=%u health_unassessed=%u\n",
                  (unsigned)c->mode.level, (unsigned)c->mode.boot_lock,
                  lg_gate_state_name(c->gate_state), (unsigned)c->gate_silent,
                  c->last_gate_target == LG_GATE_TARGET_UP ? "UP" : "DOWN", (unsigned)c->last_lights,
@@ -767,7 +976,9 @@ size_t lg_ctl_text(const lg_ctl_t *c, char *buf, size_t len) {
                  (unsigned)c->sup_silent, (unsigned)c->proc_status_rx, (unsigned)c->proc_status_rejected,
                  proc_bad, (unsigned)c->guard_acks, (unsigned)c->tickets, sensor_failed,
                  (unsigned)c->events, (unsigned)c->last_unmet[0], (unsigned)c->last_unmet[1],
-                 (unsigned)c->stalls);
+                 (unsigned)c->stalls, (unsigned)c->health_armed, (unsigned)c->health_silent,
+                 (unsigned)c->health_rx, (unsigned)c->health_rejected, comp_bad, (unsigned)c->warnings,
+                 (unsigned)c->lead_times, (unsigned)c->last_lead_time_ms, (unsigned)c->health_unassessed);
     if (n < 0) {
         buf[0] = '\0';
         return 0;

@@ -72,6 +72,43 @@
  */
 #define LG_SENSOR_MAX_OCCUPIED_MS 20000 /* initial */
 
+/*
+ * lg-health (Step 11, README 8.3). All "initial"; config/thresholds.json overrides them. Noise is in
+ * noise units (LG_SENSOR_BASE_NOISE scale), stored in milli units in core/health.c.
+ */
+#define LG_HEALTH_TICK_MS 50          /* lg-health timer period */
+#define LG_HEALTH_POLL_MS 200         /* a component with verdict OK is read this often */
+#define LG_HEALTH_POLL_FAST_MS 50     /* WARNING or FAILED: read this often (README 3: level 1 samples faster) */
+#define LG_HEALTH_REFRESH_MS 500      /* every verdict is sent again at least this often */
+#define LG_HEALTH_LEARN_MS 10000      /* the noise baseline is learned over this time after a (re)start */
+#define LG_HEALTH_NOISE_LEARN_MAX 2   /* a learned baseline is at most base noise + this */
+#define LG_HEALTH_NOISE_FAIL 30       /* noise units: FAILED (amplitude 240 counts, below the 300 that reads a phantom train) */
+#define LG_HEALTH_CUSUM_K_MILLI 1000  /* CUSUM slack: noise this far (milli units) above the baseline is tolerated */
+#define LG_HEALTH_CUSUM_H_MILLI 2000  /* CUSUM alarm: milli unit-seconds above baseline + k */
+#define LG_HEALTH_DROPOUT_WARN_PM 50  /* per mille of ticks without a usable sample: WARNING */
+#define LG_HEALTH_DROPOUT_FAIL_PM 300 /* per mille: FAILED */
+#define LG_HEALTH_DELAY_ZERO_MS 50    /* a rise this much later than the partner is still "together" */
+#define LG_HEALTH_DELAY_FAIL_MS 400   /* a rise this much later than the partner: score 40 */
+#define LG_HEALTH_PAIR_WINDOW_MS 2000 /* rises of A and B this close belong to the same train */
+#define LG_HEALTH_DISAGREE_CLEAR 1    /* agreeing trains needed to forget a disagreement (as the controller's stuck latch) */
+#define LG_HEALTH_GATE_TRAVEL_FAIL_PCT 175 /* travel time vs nominal: FAILED (5 s prewarning + 7 s < 13.3 s fastest train) */
+#define LG_HEALTH_GATE_CURRENT_FAIL_PCT 200 /* peak motor current vs nominal: FAILED */
+#define LG_HEALTH_GATE_CUSUM_K_PCT 5  /* gate CUSUM slack, percent of nominal per movement */
+#define LG_HEALTH_GATE_CUSUM_H_PCT 30 /* gate CUSUM alarm, percent-movements */
+#define LG_HEALTH_OK_SCORE 75         /* back to OK only at this score or better (hysteresis) */
+#define LG_HEALTH_OK_HOLD_MS 2000     /* ... held this long */
+#define LG_HEALTH_NODATA_POLLS 3      /* failed reads in a row before the verdict says NO_DATA */
+#define LG_CTL_HEALTH_SILENCE_MS 2000 /* controller: no verdict for this long after the first = health lost */
+
+/* Backup battery (simulated in lg-gate). Millivolts, simulated seconds. */
+#define LG_BATTERY_FULL_MV 13200
+#define LG_BATTERY_EMPTY_MV 10500
+#define LG_BATTERY_CHARGE_MV_S 20     /* charger: mV per second back towards full */
+#define LG_BATTERY_WARN_MV 12000
+#define LG_BATTERY_FAIL_MV 11000
+#define LG_BATTERY_TTE_WARN_S 600     /* time to empty below this: WARNING */
+#define LG_BATTERY_TTE_FAIL_S 60      /* time to empty below this: FAILED */
+
 /* Sample freshness: a sample older than this is not used (README 10.3). */
 #define LG_SAMPLE_MAX_AGE_MS 20
 

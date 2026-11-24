@@ -26,6 +26,8 @@ lg_sup_cfg_t lg_sup_cfg_default(void) {
     }
     c.installed[LG_PROC_CONTROLLER] = 1;
     c.stage[LG_PROC_CONTROLLER] = 2;
+    c.installed[LG_PROC_HEALTH] = 1; /* Step 11: reads the sensor and gate devices, so after stage 1 */
+    c.stage[LG_PROC_HEALTH] = 2;
     c.installed[LG_PROC_BRIDGE] = 1; /* Step 10: started last, a dead bridge is level 1 */
     c.stage[LG_PROC_BRIDGE] = 3;
     return c;

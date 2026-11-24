@@ -19,7 +19,9 @@ int main(void) {
     CHECK(offsetof(lg_guard_ack_t, hdr) == 0);
     CHECK(offsetof(lg_ack_t, hdr) == 0);
 
-    CHECK(LG_PROTO_VERSION == 4);
+    CHECK(LG_PROTO_VERSION == 5);
+    CHECK(offsetof(lg_health_verdict_t, trend_s_to_failure) == 24);
+    CHECK(LG_DIAG_COUNT < 0x10000); /* diagnosis_code is 16 bits */
 
     /* The heartbeat value is the process id: it must fit what a pulse value can hold. */
     CHECK(LG_PROC_COUNT < 256);

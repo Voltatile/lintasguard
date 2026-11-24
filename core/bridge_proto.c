@@ -1,6 +1,7 @@
 #include "lg_bridge_proto.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "lg_proto.h"
@@ -221,7 +222,41 @@ int lg_bridge_parse_event(const char *line, lg_bridge_event_t *ev) {
             return -1;
         }
         (void)lg_bridge_kv_u32(line, "level", &ev->to);
+        if (lg_bridge_kv_str(line, "component", ev->component, sizeof ev->component) != 0) {
+            memcpy(ev->component, ev->sensor, sizeof ev->component); /* a Step 9/10 line */
+        }
+        {
+            char t[16];
+            char *end = NULL;
+            long v;
+
+            if (lg_bridge_kv_str(line, "trend_s", t, sizeof t) == 0) {
+                v = strtol(t, &end, 10);
+                if (end != t && *end == '\0' && v >= 0 && v <= 0x7FFFFFFFL) {
+                    ev->trend_s = (int32_t)v;
+                    ev->has_trend = 1;
+                }
+            }
+        }
         ev->kind = LG_BRIDGE_EV_NOTIFY;
+        return 0;
+    }
+    if (strcmp(kind, "METRIC") == 0) {
+        char t[24];
+        char *end = NULL;
+        long long v;
+
+        if (lg_bridge_kv_str(line, "name", ev->name, sizeof ev->name) != 0 ||
+            lg_bridge_kv_str(line, "component", ev->component, sizeof ev->component) != 0 ||
+            lg_bridge_kv_str(line, "value", t, sizeof t) != 0) {
+            return -1;
+        }
+        v = strtoll(t, &end, 10);
+        if (end == t || *end != '\0') {
+            return -1;
+        }
+        ev->value = (int64_t)v;
+        ev->kind = LG_BRIDGE_EV_METRIC;
         return 0;
     }
     return -1;
@@ -385,6 +420,11 @@ size_t lg_bridge_event_json(const lg_bridge_event_t *ev, char *buf, size_t len) 
         jw_fmt_u(&w, "from", ev->from);
         jw_fmt_u(&w, "to", ev->to);
         jw_str(&w, "reason", lg_bridge_reason_name(ev->reason));
+    } else if (ev->kind == LG_BRIDGE_EV_METRIC) {
+        jw_str(&w, "kind", "metric");
+        jw_str(&w, "name", ev->name);
+        jw_str(&w, "component", ev->component);
+        jw_fmt_i(&w, "value", ev->value);
     } else {
         char sev[12];
         char text[96];
@@ -400,12 +440,30 @@ size_t lg_bridge_event_json(const lg_bridge_event_t *ev, char *buf, size_t len) 
         jw_str(&w, "to", "maintenance");
         jw_str(&w, "severity", sev[0] ? sev : "info");
         jw_str(&w, "sensor", ev->sensor);
+        jw_str(&w, "component", ev->component[0] ? ev->component : ev->sensor);
         jw_str(&w, "diag", ev->diag);
-        if (strcmp(ev->diag, "OK") == 0) {
-            (void)snprintf(text, sizeof text, "Sensor %s is working again", ev->sensor);
-        } else {
-            (void)snprintf(text, sizeof text, "Sensor %s: %s, %s maintenance", ev->sensor, ev->diag,
-                           sev[0] ? sev : "info");
+        if (ev->has_trend) {
+            jw_fmt_i(&w, "trend_s", ev->trend_s);
+        }
+        {
+            const char *who = ev->component[0] ? ev->component : ev->sensor;
+            const char *what = strcmp(who, "gate") == 0 || strcmp(who, "battery") == 0 ? "" : "Sensor ";
+            char cap[20];
+
+            /* "Gate", "Battery", "Sensor west/a" */
+            (void)snprintf(cap, sizeof cap, "%s", who);
+            if (what[0] == '\0' && cap[0] >= 'a' && cap[0] <= 'z') {
+                cap[0] = (char)(cap[0] - 'a' + 'A');
+            }
+            if (strcmp(ev->diag, "OK") == 0) {
+                (void)snprintf(text, sizeof text, "%s%s is working again", what, cap);
+            } else if (ev->has_trend) {
+                (void)snprintf(text, sizeof text, "%s%s: %s, %s maintenance, about %d s to failure", what, cap,
+                               ev->diag, sev[0] ? sev : "info", (int)ev->trend_s);
+            } else {
+                (void)snprintf(text, sizeof text, "%s%s: %s, %s maintenance", what, cap, ev->diag,
+                               sev[0] ? sev : "info");
+            }
         }
         jw_str(&w, "text", text);
     }

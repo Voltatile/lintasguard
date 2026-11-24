@@ -65,6 +65,11 @@ typedef struct {
 
     uint32_t watchdog_trips;
     uint32_t rejected; /* commands rejected as invalid */
+
+    /* Step 11, read by lg-health through DCMD_LG_GATE_STATS. */
+    uint32_t moves_done;   /* completed movements */
+    uint32_t move_peak_ma; /* highest motor current of the movement in progress */
+    uint32_t last_peak_ma; /* highest motor current of the last completed movement */
 } lg_gate_model_t;
 
 /* Starts DOWN, lights flashing and bell on (README 8.6), target DOWN. */

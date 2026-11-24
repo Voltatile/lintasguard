@@ -174,3 +174,34 @@ int lg_sensor_model_step(lg_sensor_model_t *m, uint32_t now_ms, uint8_t truth_oc
     out->axle_count = axles;
     return 1;
 }
+
+void lg_sensor_acc_step(lg_sensor_acc_t *a, uint32_t now_ms, int produced, const lg_sensor_out_t *out) {
+    int32_t nominal;
+    int32_t dev;
+    uint8_t occ;
+
+    a->ticks++;
+    if (!produced || out == NULL) {
+        a->no_sample++;
+        return;
+    }
+    if (out->quality < LG_SENSOR_QUALITY_USABLE_MIN) {
+        a->blind++; /* sees nothing: no noise figure, no edge */
+        return;
+    }
+    occ = out->occupied ? 1u : 0u;
+    nominal = occ ? LG_SENSOR_OCCUPIED_LEVEL : LG_SENSOR_CLEAR_LEVEL;
+    dev = (int32_t)out->raw_level - nominal;
+    a->dev_sum += (uint64_t)(dev < 0 ? -dev : dev);
+    a->dev_count++;
+    if (a->have_last && occ != a->last_occupied) {
+        if (occ) {
+            a->rise_count++;
+            a->last_rise_ms = now_ms;
+        } else {
+            a->last_fall_ms = now_ms;
+        }
+    }
+    a->last_occupied = occ;
+    a->have_last = 1;
+}

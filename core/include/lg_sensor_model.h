@@ -84,4 +84,27 @@ uint32_t lg_sensor_model_noise(const lg_sensor_model_t *m, uint32_t now_ms);
 
 const char *lg_sensor_fault_name(uint8_t mode);
 
+/*
+ * Cumulative statistics of the samples a sensor produced (Step 11): what lg-sensor serves through
+ * DCMD_LG_SENSOR_STATS and lg-health turns into noise, dropout and response-delay figures. The
+ * deviation is taken from the nominal level of the sample's own reading (occupied: occupied level,
+ * clear: clear level), so it needs no ground truth. Counters wrap modulo 2^32 (2^64 for dev_sum).
+ */
+typedef struct {
+    uint32_t ticks;      /* every tick, with or without a sample */
+    uint32_t no_sample;  /* ticks without a sample */
+    uint32_t blind;      /* samples with quality 0 */
+    uint32_t dev_count;  /* samples counted in dev_sum (quality >= 1) */
+    uint64_t dev_sum;    /* sum of |raw - nominal level of the reading| */
+    uint32_t rise_count; /* readings that went from clear to occupied */
+    uint32_t last_rise_ms;
+    uint32_t last_fall_ms;
+    uint8_t last_occupied;
+    uint8_t have_last;
+    uint8_t reserved[2];
+} lg_sensor_acc_t;
+
+/* One tick: produced = 0 when the tick had no sample (out is then ignored and may be NULL). */
+void lg_sensor_acc_step(lg_sensor_acc_t *a, uint32_t now_ms, int produced, const lg_sensor_out_t *out);
+
 #endif

@@ -77,6 +77,7 @@ static void retarget(lg_gate_model_t *m, uint8_t target, uint32_t now_ms) {
     m->move_start_ms = now_ms;
     m->stall_ref_ms = now_ms;
     m->move_acc = 0;
+    m->move_peak_ma = 0; /* the peak belongs to one movement (review L4) */
     m->pending = (uint8_t)!at_target(m);
 }
 
@@ -157,6 +158,9 @@ void lg_gate_model_step(lg_gate_model_t *m, uint32_t now_ms) {
         if (m->pending) {
             m->last_travel_ms = (uint32_t)(now_ms - m->move_start_ms);
             m->pending = 0;
+            m->moves_done++;
+            m->last_peak_ma = m->move_peak_ma;
+            m->move_peak_ma = 0;
         }
         m->state = m->target == LG_GATE_TARGET_DOWN ? LG_GATE_DOWN : LG_GATE_UP;
     } else if (lg_elapsed_ge(now_ms, m->stall_ref_ms, fault_timeout_ms(m))) {
@@ -178,6 +182,9 @@ void lg_gate_model_step(lg_gate_model_t *m, uint32_t now_ms) {
             ma = ma * m->fault_pct / 100u;
         }
         m->current_ma = ma > 0xFFFFFFFFull ? 0xFFFFFFFFu : (uint32_t)ma;
+        if (m->pending && m->current_ma > m->move_peak_ma) {
+            m->move_peak_ma = m->current_ma;
+        }
     } else {
         m->current_ma = m->cfg.current_hold_ma;
     }
