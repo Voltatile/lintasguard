@@ -1,0 +1,60 @@
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  gate is now RESTARTING (restarts in window 0)
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  no heartbeat from sensor/west/a (pid 316768281): SIGKILL
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  sensor/west/a is now RESTARTING (restarts in window 0)
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  no heartbeat from sensor/west/b (pid 316768282): SIGKILL
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  sensor/west/b is now RESTARTING (restarts in window 0)
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  no heartbeat from sensor/west/island (pid 316768283): SIGKILL
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  sensor/west/island is now RESTARTING (restarts in window 0)
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  no heartbeat from sensor/east/a (pid 316768284): SIGKILL
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  sensor/east/a is now RESTARTING (restarts in window 0)
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  no heartbeat from sensor/east/b (pid 316768285): SIGKILL
+Nov 24 07:54:35.885        lg_supervisor.316731394                 main      0  sensor/east/b is now RESTARTING (restarts in window 0)
+Nov 24 07:54:35.885        lg_controller.316772384                 main      0  event seq=16 t_ms=191498730 kind=NOTIFY severity=URGENT to=maintenance sensor=west/island diag=SILENT level=3 component=west/island trend_s=-1
+Nov 24 07:54:35.885        lg_controller.316772384                 main      0  event seq=17 t_ms=191498730 kind=NOTIFY severity=URGENT to=maintenance sensor=east/a diag=SILENT level=3 component=east/a trend_s=-1
+Nov 24 07:54:35.885        lg_controller.316772384                 main      0  event seq=18 t_ms=191498730 kind=NOTIFY severity=URGENT to=maintenance sensor=east/b diag=SILENT level=3 component=east/b trend_s=-1
+Nov 24 07:54:35.896        lg_controller.316772384                 main      0  level 3 -> 4 (reason 10)
+Nov 24 07:54:35.896        lg_controller.316772384                 main      0  event seq=19 t_ms=191498740 kind=LEVEL severity=URGENT from=3 to=4 reason=10
+Nov 24 07:54:35.896        lg_controller.316772384                 main      0  event seq=20 t_ms=191498740 kind=NOTIFY severity=URGENT to=station sensor=none diag=CROSSING_CLOSED level=4 component=none trend_s=-1 dir=west
+Nov 24 07:54:35.896        lg_controller.316772384                 main      0  event seq=21 t_ms=191498740 kind=NOTIFY severity=URGENT to=guard sensor=none diag=CROSSING_CLOSED level=4 component=none trend_s=-1 dir=west
+Nov 24 07:54:35.896        lg_controller.316772384                 main      0  event seq=22 t_ms=191498740 kind=NOTIFY severity=URGENT to=road_sign sensor=none diag=CROSSING_CLOSED level=4 component=none trend_s=-1 dir=west
+Nov 24 07:54:35.903        lg_supervisor.316731394                 main      0  gate (pid 316760087) was killed by signal 9
+Nov 24 07:54:35.903        lg_supervisor.316731394                 main      0  sensor/west/a (pid 316768281) was killed by signal 9
+Nov 24 07:54:35.906        lg_supervisor.316731394                 main      0  sensor/west/island (pid 316768283) was killed by signal 9
+Nov 24 07:54:36.110        lg_controller.316772384                 main      0  event seq=23 t_ms=191498954 kind=NOTIFY severity=URGENT to=maintenance sensor=east/island diag=SILENT level=4 component=east/island trend_s=-1
+Nov 24 07:54:36.123        lg_controller.316772384                 main      0  event seq=24 t_ms=191498967 kind=NOTIFY severity=INFO to=maintenance sensor=east/island diag=OK level=4 component=east/island trend_s=-1
+Nov 24 07:54:36.135        lg_controller.316772384                 main      0  event seq=25 t_ms=191498979 kind=NOTIFY severity=URGENT to=maintenance sensor=none diag=SILENT level=4 component=gate trend_s=-1
+Nov 24 07:54:36.431        lg_supervisor.316731394                 main      0  started gate as pid 559968279
+Nov 24 07:54:36.431        lg_supervisor.316731394                 main      0  gate is now RESTARTING (restarts in window 1)
+Nov 24 07:54:36.462        lg_supervisor.316731394                 main      0  started sensor/west/a as pid 559980569
+Nov 24 07:54:36.462        lg_supervisor.316731394                 main      0  sensor/west/a is now RESTARTING (restarts in window 1)
+Nov 24 07:54:36.475        lg_supervisor.316731394                 main      0  started sensor/west/island as pid 559984666
+Nov 24 07:54:36.475        lg_supervisor.316731394                 main      0  sensor/west/island is now RESTARTING (restarts in window 1)
+Nov 24 07:54:36.476        lg_supervisor.316731394                 main      0  sensor/west/b (pid 316768282) was killed by signal 9
+Nov 24 07:54:36.482        lg_controller.316772384                 main      0  event seq=26 t_ms=191499327 kind=NOTIFY severity=INFO to=maintenance sensor=none diag=OK level=4 component=gate trend_s=-1
+Nov 24 07:54:36.483        lg_supervisor.316731394                 main      0  started sensor/west/b as pid 559984667
+Nov 24 07:54:36.483        lg_supervisor.316731394                 main      0  sensor/west/b is now RESTARTING (restarts in window 1)
+Nov 24 07:54:36.483        lg_supervisor.316731394                 main      0  no heartbeat from sensor/east/a (pid 316768284): SIGKILL
+Nov 24 07:54:36.483        lg_supervisor.316731394                 main      0  no heartbeat from sensor/east/b (pid 316768285): SIGKILL
+Nov 24 07:54:36.483        lg_supervisor.316731394                 main      0  sensor/east/a (pid 316768284) was killed by signal 9
+Nov 24 07:54:36.496        lg_supervisor.316731394                 main      0  started sensor/east/a as pid 559984668
+Nov 24 07:54:36.496        lg_supervisor.316731394                 main      0  sensor/east/a is now RESTARTING (restarts in window 1)
+Nov 24 07:54:36.496        lg_supervisor.316731394                 main      0  sensor/east/b (pid 316768285) was killed by signal 9
+Nov 24 07:54:36.504        lg_supervisor.316731394                 main      0  started sensor/east/b as pid 559984669
+Nov 24 07:54:36.504        lg_supervisor.316731394                 main      0  sensor/east/b is now RESTARTING (restarts in window 1)
+Nov 24 07:54:36.511        lg_supervisor.316731394                 main      0  gate is now RUNNING (restarts in window 1)
+Nov 24 07:54:36.550        lg_supervisor.316731394                 main      0  sensor/west/island is now RUNNING (restarts in window 1)
+Nov 24 07:54:36.570        lg_supervisor.316731394                 main      0  sensor/west/a is now RUNNING (restarts in window 1)
+Nov 24 07:54:36.570        lg_supervisor.316731394                 main      0  sensor/west/b is now RUNNING (restarts in window 1)
+Nov 24 07:54:36.570        lg_supervisor.316731394                 main      0  sensor/east/a is now RUNNING (restarts in window 1)
+Nov 24 07:54:36.570        lg_supervisor.316731394                 main      0  sensor/east/b is now RUNNING (restarts in window 1)
+Nov 24 07:54:36.570        lg_controller.316772384                 main      0  event seq=27 t_ms=191499415 kind=NOTIFY severity=INFO to=maintenance sensor=west/island diag=OK level=4 component=west/island trend_s=-1
+Nov 24 07:54:36.591        lg_controller.316772384                 main      0  event seq=28 t_ms=191499435 kind=NOTIFY severity=INFO to=maintenance sensor=east/a diag=OK level=4 component=east/a trend_s=-1
+Nov 24 07:54:36.591        lg_controller.316772384                 main      0  event seq=29 t_ms=191499435 kind=NOTIFY severity=INFO to=maintenance sensor=east/b diag=OK level=4 component=east/b trend_s=-1
+Nov 24 07:54:39.289        lg_controller.316772384                 main      0  event seq=30 t_ms=191502134 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=4 component=west/a trend_s=-1
+Nov 24 07:54:39.289        lg_controller.316772384                 main      0  event seq=31 t_ms=191502134 kind=NOTIFY severity=INFO to=maintenance sensor=west/b diag=OK level=4 component=west/b trend_s=-1
+Nov 24 07:54:45.911        lg_supervisor.316731394                 main      0  gate is now RUNNING (restarts in window 0)
+Nov 24 07:54:45.911        lg_supervisor.316731394                 main      0  sensor/west/a is now RUNNING (restarts in window 0)
+Nov 24 07:54:45.911        lg_supervisor.316731394                 main      0  sensor/west/island is now RUNNING (restarts in window 0)
+Nov 24 07:54:46.480        lg_supervisor.316731394                 main      0  sensor/west/b is now RUNNING (restarts in window 0)
+Nov 24 07:54:46.491        lg_supervisor.316731394                 main      0  sensor/east/a is now RUNNING (restarts in window 0)
+Nov 24 07:54:46.500        lg_supervisor.316731394                 main      0  sensor/east/b is now RUNNING (restarts in window 0)

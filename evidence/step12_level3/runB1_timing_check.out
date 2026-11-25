@@ -1,0 +1,112 @@
+=== step12_level3 B on QNX lintasguard 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64
+=== part 1: boot under lg-supervisor with lg-schedule (level3_outage.json, timetable level3_outage.timetable.json)
+PASS: boot release: level 0 and gate UP within 25 s
+PASS: lg-schedule is RUNNING under the supervisor
+PASS: the controller has schedule information for both directions (sched_ok=1,1)
+=== part 3: cancelled West train (entry 7, window 50 .. 100 s)
+/dev/lg/sensor/west/a: fault DROPOUT param=100 accepted
+/dev/lg/sensor/west/b: fault DROPOUT param=100 accepted
+PASS: level 3 within 3 s
+PASS: the level change says DETECT_LOST_SCHEDULE (reason 7)
+PASS: West is uncertain, East is not (uncertain=1,0)
+FAIL: 45 s, before the window: the gate is UP
+PASS: 52 s, window 7 open: the gate goes DOWN within 10 s
+PASS: 102 s: past the window end, the gate is still DOWN (no automatic opening)
+PASS: overdue notification to the guard (to=guard TRAIN_OVERDUE dir=west)
+PASS: an unknown guard id is refused (exit 4)
+PASS: the refused confirmation changed nothing (gate still DOWN)
+PASS: lgctl guard-confirm --id G01 --dir west (exit 0)
+PASS: the gate is UP again within 15 s
+PASS: one West window confirmed by the guard (win_guard=1,0)
+=== part 5: schedule information lost (lgctl schedule outage all)
+PASS: lgctl schedule outage all (exit 0)
+PASS: /dev/lg/schedule shows the outage
+PASS: 50 s later: still level 3 (T_info_timeout is 60 s)
+PASS: 65 s after the outage: level 4
+PASS: the level change says DETECT_LOST_NO_INFO (reason 8)
+PASS: no schedule information any more (sched_ok=0,0)
+PASS: level 4: the gate is DOWN within 10 s
+PASS: station told the crossing is in fail-safe (to=station NO_SCHEDULE)
+PASS: guard told (to=guard NO_SCHEDULE)
+PASS: road sign: CROSSING CLOSED (to=road_sign NO_SCHEDULE)
+--- repair: information back, faults cleared, health reset, guard acknowledges
+/dev/lg/schedule: outage none accepted
+/dev/lg/sensor/west/a: fault NONE param=0 accepted
+/dev/lg/sensor/west/b: fault NONE param=0 accepted
+health of west/a reset
+health of west/b reset
+PASS: information is back (sched_ok=1,1)
+PASS: level 4 holds without a guard
+PASS: lgctl guard-ack --id G01 (exit 0)
+PASS: level 4 is left within 45 s (T_stable 30 s)
+--- lg-meter output (exit 0):
+key,value
+plant_end_ms,230006
+meter_samples,21804
+meter_plant_fail,0
+meter_gate_fail,0
+meter_periods,21804
+meter_coverage_pct,100
+meter_max_gap_ms,44
+meter_max_sample_gap_ms,44
+trains,1
+trains_without_warning,0
+warning_count,1
+warning_max_ms,15990
+warning_avg_ms,15990
+closure_count,3
+closure_max_ms,48128
+closure_avg_ms,35555
+closed_ms,130664
+observed_ms,218030
+closure_ms_per_hour,2157457
+wrong_side_events,0
+wrong_side_ticks,0
+controller_late_ticks,265
+controller_cycles,2
+controller_level_end,0
+RESULT partB_trains=1
+RESULT partB_trains_without_warning=0
+RESULT partB_closure_count=3
+RESULT partB_closure_max_ms=48128
+RESULT partB_closure_ms_per_hour=2157457
+RESULT partB_warning_avg_ms=15990
+RESULT partB_wrong_side_events=0
+RESULT partB_wrong_side_ticks=0
+RESULT partB_meter_coverage_pct=100
+RESULT partB_meter_max_gap_ms=44
+PASS: partB: wrong_side_events is 0
+PASS: partB: wrong_side_ticks is 0
+PASS: partB: lg-meter observed the whole run and saw no wrong side (exit 0)
+PASS: partB: every train reached the island with the lights on
+PASS: partB: trains seen by the meter: 1
+RESULT B_controller_stalls=0 late_ticks=265
+--- final state
+level=0 boot_lock=0 gate=UP gate_silent=0 target=UP lights=0 bell=0 active=0,0 activations=2 cycles=2 ticks=22991 late_ticks=265 samples=106006 rejected=0 gate_replies=22990 gate_timeouts=0 sup_armed=1 sup_silent=0 proc_status_rx=2531 proc_status_rejected=0 proc_bad=0x0 guard_acks=1 tickets=2 sensor_failed=0x0 events=21 unmet=0x0,0x0 stalls=0 health_armed=1 health_silent=0 health_rx=3586 health_rejected=0 comp_bad=0x0 warnings=2 lead_times=2 last_lead_time_ms=61 health_unassessed=0 sched_ok=1,1 uncertain=0,0 win_open=0,0 win_island=0,0 win_guard=1,0 sched_rejected=0 guard_confirms=1 ignored_ticks=9 gate_connects=1 gate_dropped=0 guards=1 guard_refused=1 events_lost=0 sched_policy=1 sched_priority=50
+dir=west info=1 outage=0 listed=0 world_ms=230143 lead_ms=20000 tol_ms=30000
+dir=east info=1 outage=0 listed=0 world_ms=230143 lead_ms=20000 tol_ms=30000
+station rx=0 moved=0 added=0 ignored=0 rejected=0
+process ticks=460 sent=920 send_fail=0 refused=0 connects=1 station_msgs=0 queries=0 bad_msgs=0 outages=2 epoch_ms=196436161 timetable=/tmp/lintasguard/scenarios/level3_outage.timetable.json
+seq=1 t_ms=196443977 kind=LEVEL severity=INFO from=4 to=0 reason=2
+seq=2 t_ms=196448277 kind=NOTIFY severity=WARNING to=maintenance sensor=west/a diag=DROPOUTS level=0 component=west/a trend_s=-1
+seq=3 t_ms=196448277 kind=NOTIFY severity=WARNING to=maintenance sensor=west/b diag=DROPOUTS level=0 component=west/b trend_s=-1
+seq=4 t_ms=196448277 kind=LEVEL severity=WARNING from=0 to=1 reason=3
+seq=5 t_ms=196448328 kind=NOTIFY severity=URGENT to=maintenance sensor=west/a diag=SILENT level=1 component=west/a trend_s=-1
+seq=6 t_ms=196448328 kind=METRIC name=lead_time_ms component=west/a value=51
+seq=7 t_ms=196448328 kind=LEVEL severity=WARNING from=1 to=2 reason=4
+seq=8 t_ms=196448338 kind=NOTIFY severity=URGENT to=maintenance sensor=west/b diag=SILENT level=2 component=west/b trend_s=-1
+seq=9 t_ms=196448338 kind=METRIC name=lead_time_ms component=west/b value=61
+seq=10 t_ms=196448338 kind=LEVEL severity=WARNING from=2 to=3 reason=7
+seq=11 t_ms=196448338 kind=NOTIFY severity=URGENT to=station sensor=none diag=DETECTION_LOST level=3 component=none trend_s=-1 dir=west
+seq=12 t_ms=196448338 kind=NOTIFY severity=URGENT to=guard sensor=none diag=DETECTION_LOST level=3 component=none trend_s=-1 dir=west
+seq=13 t_ms=196448338 kind=NOTIFY severity=WARNING to=road_sign sensor=none diag=DETECTION_LOST level=3 component=none trend_s=-1 dir=west
+seq=14 t_ms=196536165 kind=NOTIFY severity=WARNING to=guard sensor=none diag=TRAIN_OVERDUE level=3 component=none trend_s=-1 dir=west
+seq=15 t_ms=196602317 kind=LEVEL severity=URGENT from=3 to=4 reason=8
+seq=16 t_ms=196602317 kind=NOTIFY severity=URGENT to=station sensor=none diag=NO_SCHEDULE level=4 component=none trend_s=-1 dir=west
+seq=17 t_ms=196602317 kind=NOTIFY severity=URGENT to=guard sensor=none diag=NO_SCHEDULE level=4 component=none trend_s=-1 dir=west
+seq=18 t_ms=196602317 kind=NOTIFY severity=URGENT to=road_sign sensor=none diag=NO_SCHEDULE level=4 component=none trend_s=-1 dir=west
+seq=19 t_ms=196610126 kind=NOTIFY severity=INFO to=maintenance sensor=west/a diag=OK level=4 component=west/a trend_s=-1
+seq=20 t_ms=196610176 kind=NOTIFY severity=INFO to=maintenance sensor=west/b diag=OK level=4 component=west/b trend_s=-1
+seq=21 t_ms=196645576 kind=LEVEL severity=INFO from=4 to=0 reason=13
+RESULT checks=34 fails=1
+RESULT step12_level3_B FAIL

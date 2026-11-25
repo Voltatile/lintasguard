@@ -1,0 +1,112 @@
+=== step12_level3 A on QNX lintasguard 8.0.0 2026/10/30-09:10:05EDT x86pc x86_64
+=== part 1: boot under lg-supervisor with lg-schedule (level3_day.json, timetable level3_day.timetable.json)
+PASS: boot release: level 0 and gate UP within 25 s
+PASS: lg-schedule is RUNNING under the supervisor
+PASS: the controller has schedule information for both directions (sched_ok=1,1)
+PASS: /dev/lg/schedule: West has information and lists train 1
+PASS: lgctl schedule prints the same device (exit 0)
+dir=west info=1 outage=0 listed=4 world_ms=11952 lead_ms=60000 tol_ms=180000
+entry id=1 dir=west source=TIMETABLE eta_ms=196000 planned_ms=196000 in_s=184
+entry id=3 dir=west source=TIMETABLE eta_ms=520000 planned_ms=520000 in_s=508
+entry id=5 dir=west source=TIMETABLE eta_ms=880000 planned_ms=880000 in_s=868
+entry id=7 dir=west source=TIMETABLE eta_ms=1100000 planned_ms=1100000 in_s=1088
+dir=east info=1 outage=0 listed=3 world_ms=11952 lead_ms=60000 tol_ms=180000
+entry id=2 dir=east source=TIMETABLE eta_ms=318182 planned_ms=318182 in_s=306
+entry id=4 dir=east source=TIMETABLE eta_ms=664286 planned_ms=664286 in_s=652
+entry id=6 dir=east source=TIMETABLE eta_ms=970000 planned_ms=970000 in_s=958
+station rx=0 moved=0 added=0 ignored=0 rejected=0
+process ticks=24 sent=48 send_fail=0 refused=0 connects=1 station_msgs=0 queries=0 bad_msgs=0 outages=0 epoch_ms=196696815 timetable=/tmp/lintasguard/scenarios/level3_day.timetable.json
+=== part 2: both West approach sensors fail at 20 s (DROPOUT 100)
+/dev/lg/sensor/west/a: fault DROPOUT param=100 accepted
+/dev/lg/sensor/west/b: fault DROPOUT param=100 accepted
+PASS: level 3 within 3 s
+PASS: the level change says DETECT_LOST_SCHEDULE (reason 7)
+PASS: West is uncertain, East is not (uncertain=1,0)
+PASS: station notified: drivers from the West slow down (to=station DETECTION_LOST dir=west)
+PASS: guard dispatched (to=guard DETECTION_LOST)
+PASS: road sign shows the fault (to=road_sign DETECTION_LOST)
+PASS: 100 s: still level 3
+PASS: 100 s, no window open: the gate is UP (not down permanently)
+PASS: 140 s, window of train 1 open (136 s): the controller wants the gate DOWN
+PASS: the West window is open (win_open=1,0)
+PASS: the gate is DOWN within 10 s, before train 1 reaches the island at 196 s
+PASS: 194 s: the gate is still DOWN just before train 1 arrives
+PASS: train 1 confirmed by the island: the gate is UP again within 15 s
+PASS: one West window confirmed by the island (win_island=1,0)
+=== part 4: lg-schedule is killed at 260 s (the supervisor restarts it, level stays 3)
+PASS: lgctl kill schedule (exit 0)
+PASS: lg-schedule is RUNNING again within 5 s
+PASS: the restart was counted (total=1)
+PASS: the level is still 3 (not 4: the information did not time out)
+PASS: schedule information again for both directions (sched_ok=1,1)
+PASS: the restarted lg-schedule uses the same scenario clock (train 3 still listed at 520 s)
+=== part 2 (continued): train 3 runs 60 s late, train 5 comes 30 s early
+PASS: 465 s, window of train 3 open (460 s): the controller wants the gate DOWN
+PASS: the gate is DOWN within 10 s
+PASS: 578 s: train 3 is 58 s late and the gate is still DOWN (no automatic opening)
+PASS: train 3 confirmed: the gate is UP again within 15 s
+PASS: two West windows confirmed (win_island=2,0)
+PASS: 825 s, window of train 5 open (820 s): the controller wants the gate DOWN
+PASS: the gate is DOWN within 10 s, before train 5 arrives 30 s early at 850 s
+PASS: train 5 confirmed: the gate is UP again within 15 s
+PASS: three West windows confirmed (win_island=3,0)
+--- lg-meter did not finish within 120 s of its end: killed
+--- lg-meter output (exit 137):
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_trains=
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_trains_without_warning=
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_closure_count=
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_closure_max_ms=
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_closure_ms_per_hour=
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_warning_avg_ms=
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_wrong_side_events=
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_wrong_side_ticks=
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_meter_coverage_pct=
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_meter_max_gap_ms=
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+FAIL: part2: wrong_side_events is 0
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+FAIL: part2: wrong_side_ticks is 0
+FAIL: part2: lg-meter observed the whole run and saw no wrong side (exit 0)
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+FAIL: part2: every train reached the island with the lights on
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+FAIL: part2: trains seen by the meter: 6
+sed: /tmp/lg_s12_metrics.csv: No such file or directory
+RESULT part2_closure_ms_per_hour= permanent_ms_per_hour=3600000 limit_pct=40
+FAIL: closure per hour in level 3 ( ms) is at most 40 % of permanent closure
+PASS: the level is still 3 at the end of part 2
+RESULT A_controller_stalls=1 late_ticks=686
+--- final state
+level=3 boot_lock=0 gate=UP gate_silent=0 target=UP lights=0 bell=0 active=0,0 activations=6 cycles=6 ticks=98625 late_ticks=686 samples=398197 rejected=0 gate_replies=98624 gate_timeouts=0 sup_armed=1 sup_silent=0 proc_status_rx=10841 proc_status_rejected=0 proc_bad=0x0 guard_acks=0 tickets=2 sensor_failed=0x3 events=13 unmet=0x0,0x0 stalls=1 health_armed=1 health_silent=0 health_rx=15297 health_rejected=0 comp_bad=0x3 warnings=2 lead_times=2 last_lead_time_ms=91 health_unassessed=0 sched_ok=1,1 uncertain=1,0 win_open=0,0 win_island=3,0 win_guard=0,0 sched_rejected=0 guard_confirms=0 ignored_ticks=37 gate_connects=1 gate_dropped=0 guards=1 guard_refused=0 events_lost=0 sched_policy=1 sched_priority=50
+dir=west info=1 outage=0 listed=2 world_ms=987094 lead_ms=60000 tol_ms=180000
+entry id=5 dir=west source=TIMETABLE eta_ms=880000 planned_ms=880000 in_s=-107
+entry id=7 dir=west source=TIMETABLE eta_ms=1100000 planned_ms=1100000 in_s=112
+dir=east info=1 outage=0 listed=1 world_ms=987094 lead_ms=60000 tol_ms=180000
+entry id=6 dir=east source=TIMETABLE eta_ms=970000 planned_ms=970000 in_s=-17
+station rx=0 moved=0 added=0 ignored=0 rejected=0
+process ticks=1454 sent=2908 send_fail=0 refused=0 connects=1 station_msgs=0 queries=0 bad_msgs=0 outages=0 epoch_ms=196696815 timetable=/tmp/lintasguard/scenarios/level3_day.timetable.json
+seq=1 t_ms=196704603 kind=LEVEL severity=INFO from=4 to=0 reason=2
+seq=2 t_ms=196716952 kind=NOTIFY severity=WARNING to=maintenance sensor=west/b diag=DROPOUTS level=0 component=west/b trend_s=-1
+seq=3 t_ms=196716952 kind=LEVEL severity=WARNING from=0 to=1 reason=3
+seq=4 t_ms=196717002 kind=NOTIFY severity=WARNING to=maintenance sensor=west/a diag=DROPOUTS level=1 component=west/a trend_s=-1
+seq=5 t_ms=196717032 kind=NOTIFY severity=URGENT to=maintenance sensor=west/a diag=SILENT level=1 component=west/a trend_s=-1
+seq=6 t_ms=196717032 kind=METRIC name=lead_time_ms component=west/a value=30
+seq=7 t_ms=196717032 kind=LEVEL severity=WARNING from=1 to=2 reason=4
+seq=8 t_ms=196717043 kind=NOTIFY severity=URGENT to=maintenance sensor=west/b diag=SILENT level=2 component=west/b trend_s=-1
+seq=9 t_ms=196717043 kind=METRIC name=lead_time_ms component=west/b value=91
+seq=10 t_ms=196717043 kind=LEVEL severity=WARNING from=2 to=3 reason=7
+seq=11 t_ms=196717043 kind=NOTIFY severity=URGENT to=station sensor=none diag=DETECTION_LOST level=3 component=none trend_s=-1 dir=west
+seq=12 t_ms=196717043 kind=NOTIFY severity=URGENT to=guard sensor=none diag=DETECTION_LOST level=3 component=none trend_s=-1 dir=west
+seq=13 t_ms=196717043 kind=NOTIFY severity=WARNING to=road_sign sensor=none diag=DETECTION_LOST level=3 component=none trend_s=-1 dir=west
+RESULT checks=41 fails=6
+RESULT step12_level3_A FAIL
