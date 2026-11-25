@@ -2,7 +2,10 @@
  * lg-supervisor (README 4.2, 8.5, 8.6): starts the other processes in order, watches their
  * heartbeats, restarts what dies or hangs within a budget, and tells the controller.
  *
- *   lg-supervisor -b <bindir> -c <crossing.json> -s <scenario.json> [-v]
+ *   lg-supervisor -b <bindir> -c <crossing.json> -s <scenario.json> [-T <timetable.json>] [-v]
+ *
+ *   -T  start lg-schedule with this timetable (Step 12, level 3), with the same --epoch-ms as the plant.
+ *       Without it lg-schedule is not started and lost detection in a direction is level 4.
  *
  *  - name lg/supervisor      LG_PULSE_HEARTBEAT in, value = process id (lg_heartbeat.h). A beat only
  *                            counts when the pid of the sender (ConnectClientInfo of the pulse's
@@ -70,6 +73,7 @@ static char g_bindir[BINDIR_MAX];
 static char g_crossing[PATH_MAX_LG];
 static char g_scenario[PATH_MAX_LG];
 static char g_thresholds[PATH_MAX_LG]; /* thresholds.json next to the crossing config, "" = built-in */
+static char g_timetable[PATH_MAX_LG];  /* -T: lg-schedule is started only with a timetable (Step 12) */
 static uint32_t g_epoch_ms;
 static int g_epoch_set;
 static uint32_t g_refresh_ms;
@@ -163,6 +167,9 @@ static const char *binary_of(int proc) {
     if (proc == LG_PROC_HEALTH) {
         return "lg-health";
     }
+    if (proc == LG_PROC_SCHEDULE) {
+        return "lg-schedule";
+    }
     if (proc >= LG_PROC_SENSOR_BASE && proc < LG_PROC_PLANT) {
         return "lg-sensor";
     }
@@ -194,6 +201,12 @@ static void build_argv(int proc, int again, char *path, size_t pathlen, char **a
         if (g_sup.cfg.installed[LG_PROC_HEALTH]) {
             argv[n++] = (char *)"-H"; /* lg-health runs: no boot release before its verdicts */
         }
+    } else if (proc == LG_PROC_SCHEDULE) {
+        (void)snprintf(epoch, epochlen, "%u", (unsigned)g_epoch_ms);
+        argv[n++] = (char *)"-t";
+        argv[n++] = g_timetable;
+        argv[n++] = (char *)"--epoch-ms";
+        argv[n++] = epoch;
     } else if (proc == LG_PROC_HEALTH) {
         if (g_thresholds[0] != '\0') {
             argv[n++] = (char *)"-t";
@@ -324,8 +337,8 @@ static void do_spawn(int proc, uint32_t now) {
     char *argv[12];
     pid_t pid;
 
-    if (proc == LG_PROC_PLANT && !g_epoch_set) {
-        g_epoch_ms = now; /* scenario time 0: the same for every restart of the plant */
+    if ((proc == LG_PROC_PLANT || proc == LG_PROC_SCHEDULE) && !g_epoch_set) {
+        g_epoch_ms = now; /* scenario time 0: the same for every restart of the plant and of lg-schedule */
         g_epoch_set = 1;
     }
     build_argv(proc, g_sup.proc[proc].ever_started, path, sizeof path, argv, epoch, sizeof epoch);
@@ -683,6 +696,10 @@ int main(int argc, char **argv) {
             have_c = copy_arg(g_crossing, sizeof g_crossing, argv[++i]) == 0 ? 1 : -1;
         } else if (strcmp(argv[i], "-s") == 0 && i + 1 < argc) {
             have_s = copy_arg(g_scenario, sizeof g_scenario, argv[++i]) == 0 ? 1 : -1;
+        } else if (strcmp(argv[i], "-T") == 0 && i + 1 < argc) {
+            if (copy_arg(g_timetable, sizeof g_timetable, argv[++i]) != 0) {
+                have_c = -1;
+            }
         } else if (strcmp(argv[i], "-v") == 0) {
             g_verbose = 1;
         } else {
@@ -691,8 +708,20 @@ int main(int argc, char **argv) {
         }
     }
     if (have_c != 1 || have_s != 1) {
-        (void)fprintf(stderr, "usage: lg-supervisor -b <bindir> -c <crossing.json> -s <scenario.json> [-v]\n");
+        (void)fprintf(stderr,
+                      "usage: lg-supervisor -b <bindir> -c <crossing.json> -s <scenario.json> [-T <timetable.json>] "
+                      "[-v]\n");
         return 2;
+    }
+    /* Step 12: lg-schedule (level 3) only with a timetable. Without -T a direction without trustworthy
+     * detection is level 4, as in Steps 7 to 11 (Decisions log). */
+    if (g_timetable[0] != '\0') {
+        if (access(g_timetable, R_OK) != 0) {
+            (void)fprintf(stderr, "lg-supervisor: timetable %s is not readable\n", g_timetable);
+            return 2;
+        }
+        cfg.installed[LG_PROC_SCHEDULE] = 1;
+        cfg.stage[LG_PROC_SCHEDULE] = 2; /* after the plant (the epoch), next to the controller */
     }
 
     setup_logging();

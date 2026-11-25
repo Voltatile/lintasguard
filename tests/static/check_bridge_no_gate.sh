@@ -1,8 +1,9 @@
 #!/bin/sh
 # Static check (CLAUDE.md rule 4): lg-bridge is reachable from the network, so it must have no way to
-# command the gate or disturb the crossing. It may only read devices; it must not open the gate or the
-# controller by name, send messages, use devctl/ioctl, open a device for writing, run other programs or
-# signal other processes. Run by `make test`. Prints PASS/FAIL, exits non-zero on FAIL.
+# command the gate or disturb the crossing. It may only read devices and (Step 12) forward a station
+# departure to lg-schedule; it must not open the gate or the controller by name, send any other message,
+# use devctl/ioctl, open a device for writing, run other programs or signal other processes. Run by
+# `make test`. Prints PASS/FAIL, exits non-zero on FAIL.
 #
 #   check_bridge_no_gate.sh [bridge dir] [makefile]
 #
@@ -19,7 +20,8 @@ if [ ! -d "$dir" ] || [ -z "$(ls "$dir"/*.c 2>/dev/null)" ]; then
 fi
 
 PAT='LG_NAME_GATE|LG_NAME_CONTROLLER|"lg/gate"|"lg/controller"|LG_MSG_GATE_CMD|LG_GATE_CMD_|lg_gate_cmd_msg_t'
-PAT="$PAT"'|lg_gate_model_command|lg_gate_model_set_fault|name_open|MsgSend|MsgDeliver|ConnectAttach|devctl|DCMD_|ioctl'
+PAT="$PAT"'|LG_MSG_GUARD_ACK|lg_guard_ack_t|LG_MSG_SCHED_REPLY|LG_DEV_SCHEDULE|DCMD_LG_SCHED_OUTAGE'
+PAT="$PAT"'|lg_gate_model_command|lg_gate_model_set_fault|MsgDeliver|ConnectAttach|devctl|DCMD_|ioctl'
 PAT="$PAT"'|O_WRONLY|O_RDWR|fopen|freopen|(^|[^a-z_])system *\(|popen|spawn[lvp]|posix_spawn|(^|[^a-z_])exec[lv]'
 PAT="$PAT"'|(^|[^a-z_])kill *\(|SignalKill|ThreadDestroy'
 
@@ -36,6 +38,28 @@ bad=$(grep -nE "$PAT" $files 2>/dev/null)
 if [ -n "$bad" ]; then
     echo "$bad"
     echo "FAIL: check_bridge_no_gate (lg-bridge must not command the gate, send messages or run programs)"
+    exit 1
+fi
+
+# Step 12: the one message lg-bridge may send is a station departure to lg-schedule (which can only move a
+# level 3 window earlier or add one). So: name_open only of lg/schedule, only that message type, and every
+# MsgSend sends the departure structure "dep".
+other=$(grep -nE 'name_open' $files 2>/dev/null | grep -vE 'name_open\(LG_NAME_SCHEDULE, 0\)')
+if [ -n "$other" ]; then
+    echo "$other"
+    echo "FAIL: check_bridge_no_gate (lg-bridge may only open lg/schedule by name)"
+    exit 1
+fi
+other=$(grep -nE 'hdr\.type *=[^=]' $files 2>/dev/null | grep -v 'LG_MSG_STATION_DEPARTURE')
+if [ -n "$other" ]; then
+    echo "$other"
+    echo "FAIL: check_bridge_no_gate (lg-bridge may only build LG_MSG_STATION_DEPARTURE)"
+    exit 1
+fi
+other=$(grep -nE 'MsgSend' $files 2>/dev/null | grep -vE 'MsgSend\(coid, &dep, sizeof dep, &ack, sizeof ack\)')
+if [ -n "$other" ]; then
+    echo "$other"
+    echo "FAIL: check_bridge_no_gate (lg-bridge may only send the station departure)"
     exit 1
 fi
 

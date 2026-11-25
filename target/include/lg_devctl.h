@@ -93,4 +93,13 @@ typedef struct {
 
 #define DCMD_LG_HEALTH_RESET __DIOT(_DCMD_MISC, 0x60, lg_health_reset_req_t)
 
+/* /dev/lg/schedule (Step 12): injected loss of schedule information. Bit d of dir_mask = no information for
+ * direction d; 0 = information back. Needs a descriptor opened for writing. */
+typedef struct {
+    uint32_t dir_mask;
+    uint32_t reserved;
+} lg_sched_outage_req_t;
+
+#define DCMD_LG_SCHED_OUTAGE __DIOT(_DCMD_MISC, 0x70, lg_sched_outage_req_t)
+
 #endif

@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
     uint32_t controller_late = 0;
     uint32_t controller_cycles = 0;
     uint32_t controller_level = 99;
-    char ctl_text[1024]; /* status line, under 800 bytes (test_controller_events) */
+    char ctl_text[2048]; /* core line under 900 bytes (test_controller_events) + process counters */
     char gate_text[256];
     int plant_coid = -1;
     int gate_fd;

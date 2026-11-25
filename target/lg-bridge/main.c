@@ -17,7 +17,11 @@
  *    thread waits then, the main loop keeps serving the last snapshot marked stale.
  *  - status thread: /dev/lg/bridge, read only (one line of counters); writes are refused (EPERM).
  *
- * station_departure is accepted and counted; forwarding it to lg-schedule comes with Step 12.
+ *  - forwarder thread (Step 12): sends each accepted station_departure to lg/schedule as
+ *    LG_MSG_STATION_DEPARTURE (a send bounded by TimerTimeout). That is the only message lg-bridge sends,
+ *    and lg-schedule can only move a level 3 window earlier or add one with it: the network still has no
+ *    way to raise the gate. The host gets "ack" when the departure was queued for a connected lg-schedule,
+ *    "error" with reason schedule_unavailable otherwise; /dev/lg/bridge counts what lg-schedule accepted.
  * Metrics here are for display only; the evidence numbers come from lg-meter.
  */
 
@@ -35,6 +39,7 @@
 #include <sys/dispatch.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <sys/neutrino.h>
 #include <sys/resmgr.h>
 #include <sys/select.h>
 #include <sys/slog2.h>
@@ -120,6 +125,107 @@ static struct {
     uint32_t ev_dropped; /* copy of the mailbox counter: event lines lost because the queue was full */
     int port;
 } g_st;
+
+/* ---- forwarder: station departures to lg-schedule (Step 12) ------------------------------------- */
+
+#define LG_BR_FWD_QUEUE 8
+
+static pthread_mutex_t g_fw_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t g_fw_cv = PTHREAD_COND_INITIALIZER;
+static struct {
+    lg_station_departure_t q[LG_BR_FWD_QUEUE];
+    uint32_t head;
+    uint32_t count;
+    int connected; /* the forwarder holds a connection to lg/schedule */
+    uint32_t seq;
+    uint32_t sent;    /* lg-schedule answered status 0 */
+    uint32_t refused; /* lg-schedule answered with an error status */
+    uint32_t failed;  /* the send failed or timed out */
+    uint32_t unavailable; /* not queued: no connection or queue full */
+} g_fw;
+
+/* Main loop: queue one departure. 0 queued, -1 lg-schedule unavailable (nothing queued). */
+static int forward_post(uint8_t dir, uint32_t eta_s) {
+    lg_station_departure_t *d;
+    int rc = -1;
+
+    (void)pthread_mutex_lock(&g_fw_lock);
+    if (g_fw.connected && g_fw.count < LG_BR_FWD_QUEUE) {
+        d = &g_fw.q[(g_fw.head + g_fw.count) % LG_BR_FWD_QUEUE];
+        memset(d, 0, sizeof *d);
+        d->dir = dir;
+        d->eta_ms = eta_s * 1000u; /* eta_s <= 86400 (lg_bridge_parse_in): fits */
+        g_fw.count++;
+        (void)pthread_cond_signal(&g_fw_cv);
+        rc = 0;
+    } else {
+        g_fw.unavailable++;
+    }
+    (void)pthread_mutex_unlock(&g_fw_lock);
+    return rc;
+}
+
+static void *forwarder(void *arg) {
+    int coid = -1;
+
+    (void)arg;
+    for (;;) {
+        lg_station_departure_t dep;
+        lg_ack_t ack;
+        uint64_t timeout_ns = (uint64_t)LG_SCHED_SEND_TIMEOUT_MS * 1000000ull;
+        long rc;
+
+        if (coid < 0) {
+            coid = name_open(LG_NAME_SCHEDULE, 0);
+            (void)pthread_mutex_lock(&g_fw_lock);
+            g_fw.connected = coid >= 0;
+            (void)pthread_mutex_unlock(&g_fw_lock);
+            if (coid < 0) {
+                struct timespec pause = {0, 500 * 1000000L};
+
+                (void)nanosleep(&pause, NULL);
+                continue;
+            }
+        }
+        (void)pthread_mutex_lock(&g_fw_lock);
+        while (g_fw.count == 0) {
+            (void)pthread_cond_wait(&g_fw_cv, &g_fw_lock);
+        }
+        dep = g_fw.q[g_fw.head];
+        g_fw.head = (g_fw.head + 1u) % LG_BR_FWD_QUEUE;
+        g_fw.count--;
+        dep.hdr.seq = ++g_fw.seq;
+        (void)pthread_mutex_unlock(&g_fw_lock);
+        dep.hdr.type = LG_MSG_STATION_DEPARTURE;
+        dep.hdr.version = LG_PROTO_VERSION;
+        dep.hdr.t_ns = lg_now_ns();
+        memset(&ack, 0, sizeof ack);
+        rc = -1;
+        if (TimerTimeout(CLOCK_MONOTONIC, _NTO_TIMEOUT_SEND | _NTO_TIMEOUT_REPLY, NULL, &timeout_ns, NULL) != -1) {
+            rc = MsgSend(coid, &dep, sizeof dep, &ack, sizeof ack);
+        }
+        (void)pthread_mutex_lock(&g_fw_lock);
+        if (rc == -1) {
+            g_fw.failed++;
+        } else if (ack.hdr.type == LG_MSG_ACK && ack.status == 0) {
+            g_fw.sent++;
+        } else {
+            g_fw.refused++;
+        }
+        (void)pthread_mutex_unlock(&g_fw_lock);
+        if (rc == -1) {
+            logf_(SLOG2_WARNING, "station departure to %s failed: %s", LG_NAME_SCHEDULE, strerror(errno));
+            if (errno != ETIMEDOUT) {
+                (void)name_close(coid); /* the server is gone (restarted lg-schedule): reconnect */
+                coid = -1;
+                (void)pthread_mutex_lock(&g_fw_lock);
+                g_fw.connected = 0;
+                (void)pthread_mutex_unlock(&g_fw_lock);
+            }
+        }
+    }
+    return NULL;
+}
 
 /* ---- reader thread ----------------------------------------------------------------------------- */
 
@@ -341,9 +447,15 @@ static void handle_line(client_t *c, const char *line, size_t n) {
     if (in.kind == LG_BRIDGE_IN_SUBSCRIBE) {
         len = lg_bridge_reply_json(1, "subscribe", NULL, reply, sizeof reply);
     } else if (in.kind == LG_BRIDGE_IN_STATION_DEPARTURE) {
-        logf_(SLOG2_INFO, "station_departure dir=%u eta_s=%u accepted (lg-schedule arrives in Step 12)",
-              (unsigned)in.dir, (unsigned)in.eta_s);
-        len = lg_bridge_reply_json(1, "station_departure", NULL, reply, sizeof reply);
+        if (forward_post(in.dir, in.eta_s) == 0) {
+            logf_(SLOG2_INFO, "station_departure dir=%u eta_s=%u queued for lg-schedule", (unsigned)in.dir,
+                  (unsigned)in.eta_s);
+            len = lg_bridge_reply_json(1, "station_departure", NULL, reply, sizeof reply);
+        } else {
+            logf_(SLOG2_WARNING, "station_departure dir=%u eta_s=%u: lg-schedule unavailable", (unsigned)in.dir,
+                  (unsigned)in.eta_s);
+            len = lg_bridge_reply_json(0, "station_departure", "schedule_unavailable", reply, sizeof reply);
+        }
     } else {
         logf_(SLOG2_WARNING, "inbound line from fd %d rejected: %s", c->fd, in.reason);
         len = lg_bridge_reply_json(0, "rejected", in.reason, reply, sizeof reply);
@@ -499,7 +611,7 @@ static void send_round(uint32_t now, uint32_t *last_metric) {
 static iofunc_attr_t g_attr;
 static resmgr_connect_funcs_t g_connect_funcs;
 static resmgr_io_funcs_t g_io_funcs;
-static char g_text[512];
+static char g_text[768];
 
 static size_t status_text(char *buf, size_t len) {
     int n;
@@ -518,6 +630,24 @@ static size_t status_text(char *buf, size_t len) {
     if (n < 0) {
         buf[0] = '\0';
         return 0;
+    }
+    if ((size_t)n >= len) {
+        return len - 1;
+    }
+    if (n > 0 && buf[n - 1] == '\n') {
+        int m;
+
+        n--; /* continue the same line with the forwarder counters (Step 12) */
+        (void)pthread_mutex_lock(&g_fw_lock);
+        m = snprintf(buf + n, len - (size_t)n, " fwd_connected=%d fwd_sent=%u fwd_refused=%u fwd_failed=%u "
+                     "fwd_unavailable=%u\n",
+                     g_fw.connected, (unsigned)g_fw.sent, (unsigned)g_fw.refused, (unsigned)g_fw.failed,
+                     (unsigned)g_fw.unavailable);
+        (void)pthread_mutex_unlock(&g_fw_lock);
+        if (m < 0) {
+            m = 0;
+        }
+        n += m;
     }
     return (size_t)n >= len ? len - 1 : (size_t)n;
 }
@@ -700,7 +830,8 @@ int main(int argc, char **argv) {
     lg_bridge_recent_init(&g_recent);
     g_st.port = port;
     lfd = setup_listener(port);
-    if (lfd < 0 || setup_status_device() != 0 || start_thread(reader, NULL, LG_PRIO_BRIDGE, "device reader") != 0) {
+    if (lfd < 0 || setup_status_device() != 0 || start_thread(reader, NULL, LG_PRIO_BRIDGE, "device reader") != 0 ||
+        start_thread(forwarder, NULL, LG_PRIO_BRIDGE, "station forwarder") != 0) {
         return 1;
     }
     logf_(SLOG2_INFO, "up: listening on TCP port %d, %s attached, no gate command path", port, LG_DEV_BRIDGE);

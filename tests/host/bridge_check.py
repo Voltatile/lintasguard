@@ -230,8 +230,12 @@ def main() -> int:
     check("subscribe is acknowledged", bool(reply) and reply.get("kind") == "ack"
           and reply.get("what") == "subscribe")
     reply = exchange(ip, port, '{"kind":"station_departure","dir":"west","eta_s":120}')
-    check("station_departure is acknowledged", bool(reply) and reply.get("kind") == "ack"
-          and reply.get("what") == "station_departure")
+    # Step 12: forwarded to lg-schedule. This case runs without a timetable (no lg-schedule), so the
+    # bridge answers schedule_unavailable; with lg-schedule it is an ack. Either way it is not "rejected".
+    check("station_departure is accepted by the whitelist (ack, or schedule_unavailable without lg-schedule)",
+          bool(reply) and reply.get("what") == "station_departure"
+          and (reply.get("kind") == "ack"
+               or (reply.get("kind") == "error" and reply.get("reason") == "schedule_unavailable")))
     for name, line in FORBIDDEN:
         reply = exchange(ip, port, line)
         check(f"rejected with an error: {name} ({reply.get('reason') if reply else 'no reply'})",

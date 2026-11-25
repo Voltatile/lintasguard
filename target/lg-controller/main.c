@@ -17,6 +17,10 @@
  *                            could send one; a verdict can only make a component look worse (the
  *                            effective verdict is the worse of the controller's own and lg-health's),
  *                            sender authentication is Step 13.
+ *                            LG_MSG_SCHED_REPLY in (from lg-schedule, Step 12): level 3 windows and the
+ *                            schedule information flag per direction; a window can only lower the gate.
+ *                            LG_MSG_GUARD_ACK with CONFIRM_CLEAR and a direction (lgctl guard-confirm,
+ *                            Step 12): confirms a level 3 window or cycle of that direction.
  *  - /dev/lg/controller      read: one line of status text. Writes are refused (EPERM).
  *  - /dev/lg/events          read: the events still in the ring of the decision logic (level changes,
  *                            maintenance tickets), one key=value line each, oldest first. Writes are
@@ -44,9 +48,8 @@
  * the logic uses the real clock, so an extra tick only adds an evaluation. Authentication of
  * senders is Step 13.
  *
- * Not in this step: heartbeats and restarts (Step 8), guard acknowledgement (the message type exists
- * but has no handler: nothing may release level 4 before lgctl and authentication exist), health
- * verdicts (Step 11, interim verdicts are in the logic), timetable (Step 12).
+ * Heartbeats and restarts came with Step 8, the guard acknowledgement with Step 8, health verdicts with
+ * Step 11, the timetable (lg-schedule) with Step 12. Sender authentication is Step 13.
  */
 
 #include <errno.h>
@@ -127,7 +130,7 @@ static struct {
 static iofunc_attr_t g_attr;
 static resmgr_connect_funcs_t g_connect_funcs;
 static resmgr_io_funcs_t g_io_funcs;
-static char g_text[1280]; /* core line (under 800, test_controller_events) + process counters */
+static char g_text[1536]; /* core line (under 900, test_controller_events) + process counters */
 static iofunc_attr_t g_ev_attr;
 static resmgr_io_funcs_t g_ev_io_funcs;
 static char g_ev_text[LG_CTL_EVENT_RING * LG_CTL_EVENT_TEXT_MAX];
@@ -482,9 +485,27 @@ static int on_health_verdict(message_context_t *ctp, int code, unsigned flags, v
     return 0;
 }
 
+/* Schedule information from lg-schedule (Step 12): windows and the information flag per direction. */
+static int on_sched_reply(message_context_t *ctp, int code, unsigned flags, void *handle) {
+    const lg_sched_reply_t *r = (const lg_sched_reply_t *)ctp->msg;
+
+    (void)flags;
+    (void)handle;
+
+    if ((size_t)ctp->info.msglen < sizeof *r || r->hdr.type != (uint16_t)code ||
+        r->hdr.version != LG_PROTO_VERSION) {
+        g_ctl.sched_rejected++;
+        reply_ack(ctp, EINVAL);
+        return 0;
+    }
+    reply_ack(ctp, lg_ctl_on_sched_reply(&g_ctl, r, now_ms()) == 0 ? 0 : EINVAL);
+    return 0;
+}
+
 /*
- * A guard acknowledges level 4. Only ids from the config count and only the plain acknowledgement;
- * whether level 4 is really left is decided by the mode manager (healthy inputs, stable). The PIN
+ * A guard acknowledges level 4 (ACK) or confirms a direction clear in level 3 (CONFIRM_CLEAR, Step 12).
+ * Only ids from the config count; whether level 4 is really left is decided by the mode manager (healthy
+ * inputs, stable), and a confirmation only acts on a level 3 cycle or window that waits for it. The PIN
  * hash is not checked: any local process can send this message (Step 13).
  */
 static int on_guard_ack(message_context_t *ctp, int code, unsigned flags, void *handle) {
@@ -494,20 +515,28 @@ static int on_guard_ack(message_context_t *ctp, int code, unsigned flags, void *
     (void)handle;
 
     if ((size_t)ctp->info.msglen < sizeof *m || m->hdr.type != (uint16_t)code ||
-        m->hdr.version != LG_PROTO_VERSION || m->action != LG_GUARD_ACTION_ACK ||
+        m->hdr.version != LG_PROTO_VERSION ||
+        (m->action != LG_GUARD_ACTION_ACK && m->action != LG_GUARD_ACTION_CONFIRM_CLEAR) ||
+        (m->action == LG_GUARD_ACTION_CONFIRM_CLEAR && m->dir >= LG_DIR_COUNT) ||
         memchr(m->guard_id, '\0', sizeof m->guard_id) == NULL) {
         reply_ack(ctp, EINVAL);
         return 0;
     }
     if (!lg_guards_allowed(&g_guards, m->guard_id, sizeof m->guard_id)) {
         g_guard_refused++;
-        logf_(SLOG2_WARNING, "guard ack from pid %d refused: guard id not in the list", (int)ctp->info.pid);
+        logf_(SLOG2_WARNING, "guard message from pid %d refused: guard id not in the list", (int)ctp->info.pid);
         reply_ack(ctp, EPERM);
         return 0;
     }
-    lg_ctl_on_guard_ack(&g_ctl);
-    logf_(SLOG2_WARNING, "guard ack accepted for guard %s (pid %d), level %u", m->guard_id, (int)ctp->info.pid,
-          (unsigned)g_ctl.mode.level);
+    if (m->action == LG_GUARD_ACTION_CONFIRM_CLEAR) {
+        (void)lg_ctl_on_guard_confirm(&g_ctl, m->dir);
+        logf_(SLOG2_WARNING, "guard confirm clear accepted for guard %s (pid %d), dir %s, level %u", m->guard_id,
+              (int)ctp->info.pid, m->dir == LG_DIR_WEST ? "west" : "east", (unsigned)g_ctl.mode.level);
+    } else {
+        lg_ctl_on_guard_ack(&g_ctl);
+        logf_(SLOG2_WARNING, "guard ack accepted for guard %s (pid %d), level %u", m->guard_id, (int)ctp->info.pid,
+              (unsigned)g_ctl.mode.level);
+    }
     reply_ack(ctp, 0);
     return 0;
 }
@@ -859,7 +888,8 @@ int main(int argc, char **argv) {
     }
     if (message_attach(dpp, NULL, LG_MSG_PROC_STATUS, LG_MSG_PROC_STATUS, on_proc_status, NULL) == -1 ||
         message_attach(dpp, NULL, LG_MSG_GUARD_ACK, LG_MSG_GUARD_ACK, on_guard_ack, NULL) == -1 ||
-        message_attach(dpp, NULL, LG_MSG_HEALTH_VERDICT, LG_MSG_HEALTH_VERDICT, on_health_verdict, NULL) == -1) {
+        message_attach(dpp, NULL, LG_MSG_HEALTH_VERDICT, LG_MSG_HEALTH_VERDICT, on_health_verdict, NULL) == -1 ||
+        message_attach(dpp, NULL, LG_MSG_SCHED_REPLY, LG_MSG_SCHED_REPLY, on_sched_reply, NULL) == -1) {
         logf_(SLOG2_ERROR, "message_attach failed: %s", strerror(errno));
         return 1;
     }

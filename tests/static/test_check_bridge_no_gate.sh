@@ -21,8 +21,13 @@ expect() { # expect <0|1> <name> <file content or "-" for no directory>
 }
 
 expect 0 "clean source" 'int f(void) { return open("/dev/lg/gate", O_RDONLY); }'
+expect 0 "station forward (Step 12)" 'int f(void) { coid = name_open(LG_NAME_SCHEDULE, 0);
+dep.hdr.type = LG_MSG_STATION_DEPARTURE; return MsgSend(coid, &dep, sizeof dep, &ack, sizeof ack); }'
 expect 1 "no source directory" -
 for bad in 'name_open(LG_NAME_GATE, 0);' 'MsgSend(coid, &m, sizeof m, 0, 0);' 'devctl(fd, 1, 0, 0, 0);' \
+    'name_open(LG_NAME_CONTROLLER, 0);' 'name_open(LG_NAME_HEALTH, 0);' 'name_open("lg/gate", 0);' \
+    'm.hdr.type = LG_MSG_GUARD_ACK;' 'm.hdr.type = LG_MSG_SCHED_REPLY;' 'm.hdr.type = LG_MSG_HEALTH_VERDICT;' \
+    'open(LG_DEV_SCHEDULE, O_RDONLY);' 'MsgSend(coid, &dep, sizeof dep, 0, 0);' \
     'ioctl(fd, 1);' 'open("/dev/lg/gate", O_RDWR);' 'fopen("/dev/lg/gate", "r+");' 'system("lgctl kill gate");' \
     'popen("lgctl", "r");' 'spawnl(P_NOWAIT, "/x", "x", 0);' 'execv("/x", argv);' 'kill(pid, SIGKILL);' \
     'SignalKill(0, pid, 0, SIGKILL, 0, 0);' 'lg_gate_model_command(&m, LG_GATE_CMD_RAISE, now);'; do

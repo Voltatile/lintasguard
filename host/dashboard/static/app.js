@@ -70,6 +70,8 @@ function addInbox(ev) {
   } else {
     li.className = ev.severity || "info";
     li.appendChild(document.createTextNode("[" + (ev.to || "maintenance") + "] " + (ev.text || ev.diag)));
+    // Step 12: the road sign shows the latest road_sign notification ("sign off" clears it).
+    if (ev.to === "road_sign") setText("roadsign", !ev.text || ev.text === "sign off" ? "-" : ev.text);
   }
   ul.insertBefore(li, ul.firstChild);
   while (ul.children.length > 30) ul.removeChild(ul.lastChild);

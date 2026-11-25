@@ -1,12 +1,19 @@
 /*
  * lgctl: command line control of LintasGuard (README 4.2, 10.2).
  *
- *   lgctl kill sensor <dir>/<id> | gate | controller | plant | bridge | health
+ *   lgctl kill sensor <dir>/<id> | gate | controller | plant | bridge | health | schedule
  *                                      SIGKILL the process the supervisor started (pid from
  *                                      /dev/lg/supervisor): what a crash looks like to the system
  *   lgctl guard-ack --id <guard>       acknowledge level 4 (message to lg/controller). The guard id
  *                                      must be in the "guards" list of the crossing config; the PIN
  *                                      is NOT checked yet (Step 13)
+ *   lgctl guard-confirm --id <guard> --dir <dir>
+ *                                      level 3 (Step 12): the guard confirms the direction clear, which
+ *                                      confirms its OPEN timetable windows or a cycle that waits for it
+ *   lgctl schedule                     print /dev/lg/schedule (timetable, station messages, windows)
+ *   lgctl schedule outage <west|east|all|none>
+ *                                      inject a loss of schedule information (level 4 after
+ *                                      T_info_timeout for a direction without trustworthy detection)
  *   lgctl status                       print /dev/lg/controller and /dev/lg/supervisor
  *   lgctl health                       print /dev/lg/health (scores, verdicts, diagnoses, trends)
  *   lgctl health reset <comp>          forget what lg-health learned about one component after a
@@ -56,8 +63,10 @@ static int usage(void) {
     (void)fprintf(stderr,
                   "usage: lgctl sensor <dir>/<id> [fault] <mode> [param]\n"
                   "       lgctl sensor <dir>/<id> stats\n"
-                  "       lgctl kill sensor <dir>/<id> | gate | controller | plant | bridge | health\n"
+                  "       lgctl kill sensor <dir>/<id> | gate | controller | plant | bridge | health | schedule\n"
                   "       lgctl guard-ack --id <guard>\n"
+                  "       lgctl guard-confirm --id <guard> --dir <west|east>\n"
+                  "       lgctl schedule [outage <west|east|all|none>]\n"
                   "       lgctl status\n"
                   "       lgctl health [reset <comp>]\n"
                   "       lgctl gate fault <none|slow|high-current|stuck-up|stuck-down> [pct]\n"
@@ -236,7 +245,7 @@ static int cmd_kill(int argc, char **argv) {
         (void)snprintf(name, sizeof name, "sensor/%s", argv[3]);
     } else if (argc == 3 && (strcmp(argv[2], "gate") == 0 || strcmp(argv[2], "controller") == 0 ||
                              strcmp(argv[2], "plant") == 0 || strcmp(argv[2], "bridge") == 0 ||
-                             strcmp(argv[2], "health") == 0)) {
+                             strcmp(argv[2], "health") == 0 || strcmp(argv[2], "schedule") == 0)) {
         (void)snprintf(name, sizeof name, "%s", argv[2]);
     } else {
         return usage();
@@ -262,15 +271,29 @@ static int cmd_kill(int argc, char **argv) {
     return 0;
 }
 
-static int cmd_guard_ack(int argc, char **argv) {
+static int devctl_write(const char *path, int dcmd, void *req, size_t len, const char *what);
+
+/*
+ * lgctl guard-ack --id <guard>                     (level 4 acknowledgement)
+ * lgctl guard-confirm --id <guard> --dir <dir>     (Step 12: level 3, the direction is clear)
+ */
+static int cmd_guard(int argc, char **argv, int confirm) {
     lg_guard_ack_t msg;
     lg_ack_t ack;
     uint64_t timeout_ns = 2000000000ull;
     int coid;
     long rc;
+    int dir = 0;
 
-    if (argc != 4 || strcmp(argv[2], "--id") != 0) {
+    if (argc != (confirm ? 6 : 4) || strcmp(argv[2], "--id") != 0 || (confirm && strcmp(argv[4], "--dir") != 0)) {
         return usage();
+    }
+    if (confirm) {
+        dir = strcmp(argv[5], LG_DIR_NAME_WEST) == 0 ? LG_DIR_WEST : strcmp(argv[5], LG_DIR_NAME_EAST) == 0 ? LG_DIR_EAST : -1;
+        if (dir < 0) {
+            (void)fprintf(stderr, "lgctl: unknown direction '%s'\n", argv[5]);
+            return usage();
+        }
     }
     if (strlen(argv[3]) < 1 || strlen(argv[3]) >= LG_GUARD_ID_LEN) {
         (void)fprintf(stderr, "lgctl: the guard id has 1 to %d characters\n", LG_GUARD_ID_LEN - 1);
@@ -282,7 +305,9 @@ static int cmd_guard_ack(int argc, char **argv) {
     msg.hdr.seq = 1;
     msg.hdr.t_ns = lg_now_ns();
     (void)strcpy(msg.guard_id, argv[3]);
-    msg.action = LG_GUARD_ACTION_ACK; /* the PIN hash stays zero: not checked yet (Step 13) */
+    /* The PIN hash stays zero: not checked yet (Step 13). */
+    msg.action = confirm ? (uint8_t)LG_GUARD_ACTION_CONFIRM_CLEAR : (uint8_t)LG_GUARD_ACTION_ACK;
+    msg.dir = (uint8_t)dir;
     coid = name_open(LG_NAME_CONTROLLER, 0);
     if (coid == -1) {
         (void)fprintf(stderr, "name_open(%s) failed: %s\n", LG_NAME_CONTROLLER, strerror(errno));
@@ -309,8 +334,50 @@ static int cmd_guard_ack(int argc, char **argv) {
         (void)fprintf(stderr, "guard ack rejected: %s\n", strerror(ack.status));
         return ack.status == EINVAL ? 3 : 1;
     }
-    printf("guard ack for '%s' sent (level 4 is left only if all inputs are healthy and stable)\n", argv[3]);
+    if (confirm) {
+        printf("guard confirm clear for '%s' dir %s sent (acts only on a level 3 window or cycle of that "
+               "direction)\n",
+               argv[3], argv[5]);
+    } else {
+        printf("guard ack for '%s' sent (level 4 is left only if all inputs are healthy and stable)\n", argv[3]);
+    }
     return 0;
+}
+
+/*
+ * lgctl schedule                              print /dev/lg/schedule
+ * lgctl schedule outage west|east|all|none    inject a loss of schedule information (Step 12)
+ */
+static int cmd_schedule(int argc, char **argv) {
+    char text[4096];
+    lg_sched_outage_req_t req;
+    int k;
+
+    if (argc == 2) {
+        if (read_text(LG_DEV_SCHEDULE, text, sizeof text) < 0) {
+            return 1;
+        }
+        fputs(text, stdout);
+        return 0;
+    }
+    if (argc != 4 || strcmp(argv[2], "outage") != 0) {
+        return usage();
+    }
+    memset(&req, 0, sizeof req);
+    if (strcmp(argv[3], "west") == 0) {
+        req.dir_mask = 1u << LG_DIR_WEST;
+    } else if (strcmp(argv[3], "east") == 0) {
+        req.dir_mask = 1u << LG_DIR_EAST;
+    } else if (strcmp(argv[3], "all") == 0) {
+        req.dir_mask = (1u << LG_DIR_WEST) | (1u << LG_DIR_EAST);
+    } else if (strcmp(argv[3], "none") != 0) {
+        return usage();
+    }
+    k = devctl_write(LG_DEV_SCHEDULE, DCMD_LG_SCHED_OUTAGE, &req, sizeof req, "SCHED_OUTAGE");
+    if (k == 0) {
+        printf("%s: outage %s accepted\n", LG_DEV_SCHEDULE, argv[3]);
+    }
+    return k;
 }
 
 static int cmd_status(int argc) {
@@ -465,7 +532,13 @@ int main(int argc, char **argv) {
         return cmd_kill(argc, argv);
     }
     if (argc >= 2 && strcmp(argv[1], "guard-ack") == 0) {
-        return cmd_guard_ack(argc, argv);
+        return cmd_guard(argc, argv, 0);
+    }
+    if (argc >= 2 && strcmp(argv[1], "guard-confirm") == 0) {
+        return cmd_guard(argc, argv, 1);
+    }
+    if (argc >= 2 && strcmp(argv[1], "schedule") == 0) {
+        return cmd_schedule(argc, argv);
     }
     if (argc >= 2 && strcmp(argv[1], "status") == 0) {
         return cmd_status(argc);
