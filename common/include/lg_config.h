@@ -57,9 +57,11 @@
 #define LG_T_CLEAR_MS 2000      /* island clear this long before the gate may rise */
 #define LG_MIN_GATE_DOWN_MS 3000 /* initial */
 
-/* Level 3 timetable windows. */
+/* Level 3 timetable windows (Step 12). */
 #define LG_WINDOW_LEAD_MS 60000
 #define LG_WINDOW_TOLERANCE_MS 180000
+#define LG_SCHED_PUSH_MS 500       /* lg-schedule sends every direction's reply this often */
+#define LG_SCHED_SEND_TIMEOUT_MS 5 /* bound for its MsgSend to the controller (and lg-bridge's to lg-schedule) */
 
 /* Health scoring. Verdict: OK >= OK_MIN, WARNING >= WARNING_MIN, otherwise FAILED. */
 #define LG_SCORE_OK_MIN 70

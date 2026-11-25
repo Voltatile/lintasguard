@@ -14,9 +14,19 @@
  *    gate cycle is completed: the gate is lowered and only released by the clearing rules.
  *  - Lights and bell go on at activation. The gate is commanded down after lg_lower_delay_ms
  *    (level 0) or at once when it is not UP (a cycle that is still raising, level 2 and above).
- *  - The gate target is DOWN in level 3 and 4 (the level 3 timetable windows arrive in Step 12, until
- *    then level 3 holds the gate down), while a direction is ACTIVE and its delay is due, and while a
+ *  - The gate target is DOWN in level 4, while a direction is ACTIVE and its delay is due, and while a
  *    usable island sensor reports a train. It is UP only when none of these applies.
+ *  - Level 3 (Step 12, README 8.4, Decisions log): a direction without a trustworthy approach sensor is
+ *    ACTIVE while one of its timetable windows is OPEN (lg_win_*). A window opens at eta - lead only while
+ *    the direction is in that state; it is confirmed when the island sensor of the direction saw a train,
+ *    the island axle count of the direction moved since the window opened and the clearing rules hold
+ *    (level 3 rules: sighting, T_clear, minimum down time, no other direction approaching), or when a guard
+ *    confirms the direction. An OPEN window keeps the direction ACTIVE until it is confirmed, also past its
+ *    end (overdue: one notification to the guard) and also after the level went down again. A direction
+ *    whose island sensor is lost clears only with a guard confirmation. schedule_ok for the mode manager:
+ *    a reply with LG_SCHED_INFO for the direction within info_timeout_ms and lg-schedule not DEAD.
+ *    Notifications: entering level 3 tells the station, the guard and the road sign; leaving it (to level
+ *    0..2) tells the station and the road sign; level 3 to 4 tells all three that the crossing is closed.
  *  - Lights and bell stay on until the gate is UP again.
  *  - A direction is cleared only when lg_clear_step says so AND no train of the same direction was
  *    seen approaching during the last T_clear (a following train, sensor flicker).
@@ -60,6 +70,7 @@
 #include "lg_gate_model.h"
 #include "lg_mode.h"
 #include "lg_proto.h"
+#include "lg_timetable.h"
 #include "lg_voting.h"
 
 /*
@@ -76,8 +87,21 @@ typedef enum {
     LG_CTL_DIAG_RESTARTING = 6,     /* the supervisor reports the sensor process RESTARTING */
     LG_CTL_DIAG_PROC_DEAD = 7,      /* the supervisor gave up on the sensor process (restart budget) */
     LG_CTL_DIAG_GATE_FAULT = 8,     /* the gate reports FAULT (a movement took far too long) */
+    /* Step 12, level 3 notifications (to station, guard, road sign). */
+    LG_CTL_DIAG_DETECTION_LOST = 9, /* level 3: no trustworthy detection in a direction, timetable windows */
+    LG_CTL_DIAG_NO_SCHEDULE = 10,   /* level 3 to 4: the schedule information was lost, crossing closed */
+    LG_CTL_DIAG_TRAIN_OVERDUE = 11, /* a level 3 window ended without island confirmation */
+    LG_CTL_DIAG_CROSSING_CLOSED = 12, /* level 3 to 4 for another reason than lost schedule information */
     LG_CTL_DIAG_HEALTH_BASE = 16    /* 16 + lg_diag_t: the diagnosis of an lg-health verdict (Step 11) */
 } lg_ctl_diag_t;
+
+/* Who a NOTIFY event is for (Step 12). Text key to=... */
+typedef enum {
+    LG_CTL_TO_MAINTENANCE = 0,
+    LG_CTL_TO_STATION = 1,
+    LG_CTL_TO_GUARD = 2,
+    LG_CTL_TO_ROAD_SIGN = 3
+} lg_ctl_target_t;
 
 /*
  * Controller events (README 7.2 LG_MSG_EVENT, Step 9): level changes, and a maintenance ticket when a
@@ -104,11 +128,15 @@ typedef struct {
     uint8_t code; /* NOTIFY: lg_ctl_diag_t; LEVEL_CHANGE: lg_mode_reason_t; METRIC: lg_ctl_metric_t */
     uint8_t comp; /* lg_component_t of a NOTIFY or METRIC, or LG_CTL_EVENT_NO_SENSOR */
     int32_t value; /* NOTIFY: trend in seconds (-1 unknown); METRIC: the value */
+    uint8_t target; /* NOTIFY: lg_ctl_target_t (Step 12). Station, guard and road sign events carry the
+                     * direction in dir (or LG_CTL_EVENT_NO_SENSOR) and no component. */
+    uint8_t reserved_e[3];
 } lg_ctl_event_t;
 
 typedef enum { LG_CTL_METRIC_LEAD_TIME_MS = 1 } lg_ctl_metric_t;
 
 #define LG_CTL_UNMET_SAME_DIR (1u << 8) /* extra bit next to the LG_CLEAR_* mask */
+#define LG_CTL_UNMET_WINDOW (1u << 9)   /* Step 12: an OPEN window, no train of this direction passed the island yet */
 
 typedef struct {
     lg_vote_cfg_t vote;
@@ -124,6 +152,8 @@ typedef struct {
     uint32_t health_silence_ms;  /* lg-health heard once, then no verdict this long: health lost */
     uint8_t health_required;     /* lg-health is installed (-H): no boot release before its verdicts */
     uint8_t restarted;           /* started by the supervisor after an earlier controller: no boot release */
+    uint8_t reserved_cfg[2];
+    uint32_t info_timeout_ms;    /* Step 12: no schedule information for a direction this long: level 4 */
 } lg_ctl_cfg_t;
 
 lg_ctl_cfg_t lg_ctl_cfg_default(void);
@@ -233,6 +263,21 @@ typedef struct {
     uint32_t warnings;          /* WARNING notifications raised */
     uint32_t lead_times;        /* lead_time_ms metrics raised */
     uint32_t last_lead_time_ms; /* the latest of them */
+
+    /* Level 3 (Step 12): schedule information and timetable windows per direction. */
+    lg_win_dir_t win[LG_DIR_COUNT];
+    uint8_t sched_heard[LG_DIR_COUNT];  /* a reply with LG_SCHED_INFO was received for this direction */
+    uint8_t sched_ok[LG_DIR_COUNT];     /* schedule_ok given to the mode manager in the last step */
+    uint8_t guard_confirm_pending[LG_DIR_COUNT]; /* a guard confirmed the direction clear (consumed by a step) */
+    uint8_t uncertain[LG_DIR_COUNT];    /* no trustworthy approach sensor in the last step */
+    uint8_t win_active[LG_DIR_COUNT];   /* the direction is active because of an OPEN window */
+    uint8_t l3_dir;                     /* direction named in the level 3 notifications */
+    uint8_t reserved_s[3];
+    uint32_t sched_rx_ms[LG_DIR_COUNT]; /* last reply with LG_SCHED_INFO */
+    uint32_t sched_rx;
+    uint32_t sched_rejected;
+    uint32_t guard_confirms;
+    uint32_t guard_confirms_used; /* confirmations that confirmed a window or cleared a level 3 cycle */
     lg_ctl_event_t ev[LG_CTL_EVENT_RING];
 } lg_ctl_t;
 
@@ -291,6 +336,23 @@ int lg_ctl_on_health_verdict_flags(lg_ctl_t *c, uint8_t comp, uint8_t score, uin
 /* Authorised guard acknowledgement, consumed by the next step (authentication is Step 13). */
 void lg_ctl_on_guard_ack(lg_ctl_t *c);
 
+/*
+ * Authorised guard confirmation that a direction is clear (Step 12, lgctl guard-confirm), consumed by the
+ * next step. It confirms the OPEN windows of that direction and replaces the island condition of a level 3
+ * clearing (README 8.2 rule 5); it does nothing in level 4 or when nothing waits for it. -1 for a bad dir.
+ */
+int lg_ctl_on_guard_confirm(lg_ctl_t *c, uint8_t dir);
+
+/*
+ * Schedule information from lg-schedule (Step 12). eta_ns is CLOCK_MONOTONIC; the controller's now_ms is
+ * CLOCK_MONOTONIC in ms (truncated to 32 bits), so eta_ms = eta_ns / 10^6 truncated. Returns 0 when stored
+ * and -1 when refused (nothing stored, counted): bad direction, count above LG_SCHED_ENTRIES, an entry with
+ * id 0, unknown source, confidence 0 or above 100, lead above LG_TT_LEAD_MAX_MS or tolerance above
+ * LG_TT_TOL_MAX_MS. A reply without LG_SCHED_INFO updates the windows but does not refresh the information
+ * timer: after info_timeout_ms without information, a direction without trustworthy detection is level 4.
+ */
+int lg_ctl_on_sched_reply(lg_ctl_t *c, const lg_sched_reply_t *r, uint32_t now_ms);
+
 lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms);
 
 /* lg_ctl_diag_t of one sensor (always NONE for the island sensors and out-of-range arguments). */
@@ -306,6 +368,7 @@ uint32_t lg_ctl_events_since(const lg_ctl_t *c, uint32_t from_seq, lg_ctl_event_
 size_t lg_ctl_event_text(const lg_ctl_event_t *e, char *buf, size_t len);
 
 const char *lg_ctl_diag_name(uint8_t diag);
+const char *lg_ctl_target_name(uint8_t target); /* maintenance, station, guard, road_sign */
 
 /* One line of text for /dev/lg/controller, newline and NUL terminated. Returns the length. */
 size_t lg_ctl_text(const lg_ctl_t *c, char *buf, size_t len);

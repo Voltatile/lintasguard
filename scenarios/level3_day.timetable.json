@@ -1,0 +1,14 @@
+{
+  "name": "level3_day: arrival at the crossing in seconds since the scenario start. Train 1 on time, train 3 runs 60 s late, train 5 comes 30 s early, entry 7 is a cancelled train (no train in the scenario)",
+  "lead_s": 60,
+  "tolerance_s": 180,
+  "trains": [
+    { "id": 1, "dir": "west", "eta_s": 196 },
+    { "id": 2, "dir": "east", "eta_s": 318.182 },
+    { "id": 3, "dir": "west", "eta_s": 520 },
+    { "id": 4, "dir": "east", "eta_s": 664.286 },
+    { "id": 5, "dir": "west", "eta_s": 880 },
+    { "id": 6, "dir": "east", "eta_s": 970 },
+    { "id": 7, "dir": "west", "eta_s": 1100 }
+  ]
+}

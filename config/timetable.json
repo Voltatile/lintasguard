@@ -1,0 +1,13 @@
+{
+  "name": "normal_day: arrival at the crossing in seconds since the scenario start (strike-in time + 400 m / speed)",
+  "lead_s": 60,
+  "tolerance_s": 180,
+  "trains": [
+    { "id": 1, "dir": "west", "eta_s": 26 },
+    { "id": 2, "dir": "east", "eta_s": 80 },
+    { "id": 3, "dir": "west", "eta_s": 123.333 },
+    { "id": 4, "dir": "east", "eta_s": 178.182 },
+    { "id": 5, "dir": "west", "eta_s": 226 },
+    { "id": 6, "dir": "east", "eta_s": 264.286 }
+  ]
+}

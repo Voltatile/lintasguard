@@ -11,7 +11,7 @@
 
 #include <stdint.h>
 
-#define LG_PROTO_VERSION 5
+#define LG_PROTO_VERSION 6
 
 /*
  * Message types start above 0x1FF: QNX reserves 0x000 to 0x1FF for kernel and I/O messages
@@ -33,7 +33,8 @@ typedef enum {
     LG_MSG_GUARD_ACK = LG_MSG_BASE + 9,
     LG_MSG_ACK = LG_MSG_BASE + 10, /* generic reply to a MsgSend: status 0 = accepted */
     LG_MSG_TRUTH_QUERY = LG_MSG_BASE + 11, /* sensor to plant: what does my sensor see now */
-    LG_MSG_TRUTH_REPLY = LG_MSG_BASE + 12  /* plant to sensor: ground truth for one sensor */
+    LG_MSG_TRUTH_REPLY = LG_MSG_BASE + 12, /* plant to sensor: ground truth for one sensor */
+    LG_MSG_STATION_DEPARTURE = LG_MSG_BASE + 13 /* bridge to schedule: a station reports a departure */
 } lg_msg_type_t;
 
 /*
@@ -248,15 +249,50 @@ typedef struct {
     uint32_t reserved2;
 } lg_sched_query_t;
 
+/*
+ * Schedule information for one direction (Step 12, README 8.4). lg-schedule pushes one per direction
+ * every LG_SCHED_PUSH_MS to lg/controller (and answers LG_MSG_SCHED_QUERY with the same message).
+ * Without LG_SCHED_INFO in flags there is no usable information for this direction (outage, no
+ * timetable) and the controller does not refresh its information timer. count entries are valid,
+ * the earliest first. An entry is one expected train: its window is [eta - lead_ms, eta + tol_ms].
+ */
+#define LG_SCHED_ENTRIES 4
+#define LG_SCHED_INFO 0x01u /* lg_sched_reply_t.flags: the timetable for this direction is usable */
+#define LG_SCHED_STATION_ID_BASE 0x8000u /* entry ids from here on come from station messages only */
+
+typedef struct {
+    uint64_t eta_ns;    /* CLOCK_MONOTONIC time of the expected arrival at the crossing, ns */
+    uint32_t lead_ms;   /* the window opens this long before eta */
+    uint32_t tol_ms;    /* the window ends this long after eta */
+    uint16_t id;        /* entry id, 1..65535, stable while the entry is listed */
+    uint8_t source;     /* lg_sched_source_t */
+    uint8_t confidence; /* 1..100 */
+    uint32_t reserved;
+} lg_sched_entry_t;
+
 typedef struct {
     lg_hdr_t hdr;
-    uint8_t dir;        /* lg_dir_t */
-    uint8_t source;     /* lg_sched_source_t */
-    uint8_t confidence; /* 0..100, 0 = no information */
+    uint8_t dir;   /* lg_dir_t */
+    uint8_t count; /* valid entries, 0..LG_SCHED_ENTRIES */
+    uint8_t flags; /* LG_SCHED_INFO */
     uint8_t reserved;
     uint32_t reserved2;
-    uint64_t eta_ns; /* CLOCK_MONOTONIC time of the expected arrival, ns */
+    lg_sched_entry_t entry[LG_SCHED_ENTRIES];
 } lg_sched_reply_t;
+
+/*
+ * A station reports a departure towards the crossing (Step 12). Sent by lg-bridge for the host station
+ * simulator; lg-schedule may only move a window earlier or add one with it, never delay or remove one
+ * (Decisions log, Step 12). Answered with lg_ack_t.
+ */
+typedef struct {
+    lg_hdr_t hdr;
+    uint8_t dir; /* lg_dir_t */
+    uint8_t reserved[3];
+    uint32_t eta_ms; /* expected arrival at the crossing, ms from now (at most LG_STATION_ETA_MAX_MS) */
+} lg_station_departure_t;
+
+#define LG_STATION_ETA_MAX_MS 86400000u
 
 typedef struct {
     lg_hdr_t hdr;
@@ -274,7 +310,8 @@ typedef struct {
     char guard_id[LG_GUARD_ID_LEN]; /* NUL-terminated */
     uint8_t pin_hash[LG_PIN_HASH_LEN];
     uint8_t action; /* lg_guard_action_t */
-    uint8_t reserved[7];
+    uint8_t dir;    /* CONFIRM_CLEAR: lg_dir_t the guard confirms clear (Step 12); 0 for ACK */
+    uint8_t reserved[6];
 } lg_guard_ack_t;
 
 typedef struct {
@@ -311,7 +348,9 @@ _Static_assert(sizeof(lg_gate_state_msg_t) == 32, "lg_gate_state_msg_t size");
 _Static_assert(sizeof(lg_health_verdict_t) == 32, "lg_health_verdict_t size");
 _Static_assert(sizeof(lg_proc_status_t) == 24, "lg_proc_status_t size");
 _Static_assert(sizeof(lg_sched_query_t) == 24, "lg_sched_query_t size");
-_Static_assert(sizeof(lg_sched_reply_t) == 32, "lg_sched_reply_t size");
+_Static_assert(sizeof(lg_sched_entry_t) == 24, "lg_sched_entry_t size");
+_Static_assert(sizeof(lg_sched_reply_t) == 120, "lg_sched_reply_t size");
+_Static_assert(sizeof(lg_station_departure_t) == 24, "lg_station_departure_t size");
 _Static_assert(sizeof(lg_event_t) == 96, "lg_event_t size");
 _Static_assert(sizeof(lg_guard_ack_t) == 64, "lg_guard_ack_t size");
 _Static_assert(sizeof(lg_ack_t) == 24, "lg_ack_t size");

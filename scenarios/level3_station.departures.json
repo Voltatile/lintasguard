@@ -1,0 +1,7 @@
+{
+  "name": "level3_station: what the station reports. at_s = scenario time of the message, eta_s = seconds from then until the train reaches the crossing. The second message claims train 3 is 2 minutes late: it must not delay its window.",
+  "departures": [
+    { "at_s": 150, "dir": "west", "eta_s": 60 },
+    { "at_s": 330, "dir": "west", "eta_s": 190 }
+  ]
+}

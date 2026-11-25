@@ -222,6 +222,16 @@ int lg_bridge_parse_event(const char *line, lg_bridge_event_t *ev) {
             return -1;
         }
         (void)lg_bridge_kv_u32(line, "level", &ev->to);
+        if (lg_bridge_kv_str(line, "to", ev->target, sizeof ev->target) != 0) {
+            memcpy(ev->target, "maintenance", sizeof "maintenance"); /* a line from before Step 12 */
+        } else if (strcmp(ev->target, "maintenance") != 0 && strcmp(ev->target, "station") != 0 &&
+                   strcmp(ev->target, "guard") != 0 && strcmp(ev->target, "road_sign") != 0) {
+            return -1; /* nobody to route it to: not an event line */
+        }
+        if (lg_bridge_kv_str(line, "dir", ev->dir, sizeof ev->dir) != 0 ||
+            (strcmp(ev->dir, "west") != 0 && strcmp(ev->dir, "east") != 0)) {
+            memcpy(ev->dir, "none", sizeof "none");
+        }
         if (lg_bridge_kv_str(line, "component", ev->component, sizeof ev->component) != 0) {
             memcpy(ev->component, ev->sensor, sizeof ev->component); /* a Step 9/10 line */
         }
@@ -263,6 +273,33 @@ int lg_bridge_parse_event(const char *line, lg_bridge_event_t *ev) {
 }
 
 /* ---- JSON output ------------------------------------------------------------------------------- */
+
+/* The text of a station, guard or road sign notification (Step 12, README 3 level 3 actions). */
+static void people_text(const lg_bridge_event_t *ev, char *text, size_t len) {
+    const char *d = ev->dir[0] != '\0' && strcmp(ev->dir, "none") != 0 ? ev->dir : "one direction";
+    int closed = strcmp(ev->diag, "NO_SCHEDULE") == 0 || strcmp(ev->diag, "CROSSING_CLOSED") == 0;
+
+    if (strcmp(ev->target, "road_sign") == 0) {
+        (void)snprintf(text, len, "%s", strcmp(ev->diag, "DETECTION_LOST") == 0 ? "CROSSING FAULT - TAKE CARE"
+                                        : closed                                ? "CROSSING CLOSED"
+                                                                                : "sign off");
+    } else if (strcmp(ev->diag, "DETECTION_LOST") == 0) {
+        if (strcmp(ev->target, "station") == 0) {
+            (void)snprintf(text, len, "Crossing degraded, %s detection lost: drivers slow down and sound the horn", d);
+        } else {
+            (void)snprintf(text, len, "Crossing degraded, %s detection lost: guard needed at the crossing", d);
+        }
+    } else if (closed) {
+        (void)snprintf(text, len, "Crossing in fail-safe (%s), gate held down: guard acknowledgement needed",
+                       strcmp(ev->diag, "NO_SCHEDULE") == 0 ? "no schedule information" : "fault");
+    } else if (strcmp(ev->diag, "TRAIN_OVERDUE") == 0) {
+        (void)snprintf(text, len, "Expected %s train overdue: confirm the crossing clear", d);
+    } else if (strcmp(ev->diag, "OK") == 0) {
+        (void)snprintf(text, len, "Crossing detection back to normal");
+    } else {
+        (void)snprintf(text, len, "Crossing notice: %s", ev->diag);
+    }
+}
 
 typedef struct {
     char *buf;
@@ -436,6 +473,17 @@ size_t lg_bridge_event_json(const lg_bridge_event_t *ev, char *buf, size_t len) 
             sev[i] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
         }
         sev[i] = '\0';
+        if (ev->target[0] != '\0' && strcmp(ev->target, "maintenance") != 0) {
+            /* Step 12: station, guard, road sign. */
+            jw_str(&w, "kind", "notify");
+            jw_str(&w, "to", ev->target);
+            jw_str(&w, "severity", sev[0] ? sev : "info");
+            jw_str(&w, "dir", ev->dir[0] ? ev->dir : "none");
+            jw_str(&w, "diag", ev->diag);
+            people_text(ev, text, sizeof text);
+            jw_str(&w, "text", text);
+            return jw_end(&w);
+        }
         jw_str(&w, "kind", "notify");
         jw_str(&w, "to", "maintenance");
         jw_str(&w, "severity", sev[0] ? sev : "info");

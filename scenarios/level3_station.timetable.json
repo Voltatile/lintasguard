@@ -1,0 +1,10 @@
+{
+  "name": "level3_station: train 1 is planned at 300 s but runs 90 s early (210 s), only the station message protects it; train 3 is on time",
+  "lead_s": 60,
+  "tolerance_s": 180,
+  "trains": [
+    { "id": 1, "dir": "west", "eta_s": 300 },
+    { "id": 2, "dir": "east", "eta_s": 278.182 },
+    { "id": 3, "dir": "west", "eta_s": 400 }
+  ]
+}

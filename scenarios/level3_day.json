@@ -1,0 +1,11 @@
+{
+  "name": "level3_day",
+  "trains": [
+    { "id": 1, "dir": "west", "t_strike_s": 180, "speed_mps": 25, "length_m": 120, "axles": 8 },
+    { "id": 2, "dir": "east", "t_strike_s": 300, "speed_mps": 22, "length_m": 130, "axles": 8 },
+    { "id": 3, "dir": "west", "t_strike_s": 564, "speed_mps": 25, "length_m": 120, "axles": 8 },
+    { "id": 4, "dir": "east", "t_strike_s": 650, "speed_mps": 28, "length_m": 110, "axles": 8 },
+    { "id": 5, "dir": "west", "t_strike_s": 834, "speed_mps": 25, "length_m": 100, "axles": 6 },
+    { "id": 6, "dir": "east", "t_strike_s": 950, "speed_mps": 20, "length_m": 150, "axles": 10 }
+  ]
+}

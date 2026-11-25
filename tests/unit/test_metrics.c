@@ -148,7 +148,7 @@ static void test_edges(void) {
 }
 
 static void test_health_and_timetable_stubs(void) {
-    lg_tt_window_t w;
+    lg_tt_t tt;
 
     CHECK(lg_health_verdict_from_score(100) == LG_VERDICT_OK);
     CHECK(lg_health_verdict_from_score(LG_SCORE_OK_MIN) == LG_VERDICT_OK);
@@ -157,8 +157,8 @@ static void test_health_and_timetable_stubs(void) {
     CHECK(lg_health_verdict_from_score(LG_SCORE_WARNING_MIN - 1) == LG_VERDICT_FAILED);
     CHECK(lg_health_verdict_from_score(0) == LG_VERDICT_FAILED);
 
-    w = lg_timetable_window(LG_DIR_WEST, 1234);
-    CHECK(!w.valid);
+    lg_tt_init(&tt); /* an empty timetable gives no information (Step 12) */
+    CHECK(!lg_tt_info(&tt, LG_DIR_WEST) && !lg_tt_info(&tt, LG_DIR_EAST));
 }
 
 int main(void) {

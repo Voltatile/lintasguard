@@ -1,0 +1,6 @@
+{
+  "name": "level3_outage",
+  "trains": [
+    { "id": 1, "dir": "east", "t_strike_s": 20, "speed_mps": 25, "length_m": 120, "axles": 8 }
+  ]
+}

@@ -403,20 +403,23 @@ static void test_stale_boundary_for_activation(void) {
 
 /* ---- 5. Level 3 and 4 ---- */
 
+/*
+ * Step 12 replaced the interim rule "level 3 holds the gate down" (Steps 7 to 11, when level 3 could not be
+ * reached) by timetable windows: level 3 itself does not hold the gate; without an OPEN window and with no
+ * train the gate stays UP (test_controller_level3 covers the windows).
+ */
 static void test_level3_holds_gate_down(void) {
     lg_ctl_cfg_t cfg = lg_ctl_cfg_default();
     H h;
 
     h_init(&h, &cfg, 0);
     boot_to_10000(&h);
-    /* Level 3 cannot be reached through lg_ctl_step before Step 12 (schedule_ok is always 0), so the
-     * mode is set directly. Everything healthy, gate reports UP: the hold must come from the level. */
-    h.c.mode.level = LG_LEVEL_UNCERTAIN;
+    h.c.mode.level = LG_LEVEL_UNCERTAIN; /* set directly: everything healthy, gate reports UP */
     while (h.o < 10000 + LG_T_STABLE_MS - 1000) {
         lg_ctl_out_t o = h_tick(&h);
 
         CHECK(o.level == LG_LEVEL_UNCERTAIN);
-        CHECK(o.gate_target == LG_GATE_TARGET_DOWN && o.lights && o.bell);
+        CHECK(o.gate_target == LG_GATE_TARGET_UP && !o.lights && !o.bell);
         CHECK(h.c.active[0] == 0 && h.c.active[1] == 0);
     }
 }

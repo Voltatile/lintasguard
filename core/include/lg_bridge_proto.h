@@ -88,6 +88,8 @@ typedef struct {
     char diag[20];
     char component[16]; /* west/a ... gate, battery (Step 11); the sensor when the line has none */
     char name[20];      /* metric: lead_time_ms */
+    char target[12];    /* notify: maintenance, station, guard, road_sign (Step 12; maintenance when absent) */
+    char dir[8];        /* notify to station/guard/road_sign: west, east or none */
     int32_t trend_s;    /* notify: seconds to failure estimated by lg-health */
     int64_t value;      /* metric */
 } lg_bridge_event_t;

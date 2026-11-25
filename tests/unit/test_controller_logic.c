@@ -373,7 +373,7 @@ static void test_rejects_bad_input(void) {
     lg_ctl_cfg_t cfg = lg_ctl_cfg_default();
     lg_ctl_t c;
     char buf[16];
-    char big[512];
+    char big[1024];
     size_t n;
 
     lg_ctl_init(&c, &cfg, 0);

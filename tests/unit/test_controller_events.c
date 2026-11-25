@@ -309,7 +309,8 @@ static void test_event_text(void) {
     CHECK(lg_ctl_event_text(NULL, buf, sizeof buf) == 0 && buf[0] == '\0');
 }
 
-/* The worst-case status line must fit the readers: lg-meter reads it into 1024 bytes (512 before Step 11). */
+/* The worst-case status line must fit the readers: lg-meter reads it into 2048 bytes since Step 12 (1024 in
+ * Step 11), lg-controller keeps 1536 for it plus its process counters. */
 static void test_status_worst_case_length(void) {
     lg_ctl_t c;
     lg_ctl_cfg_t cfg = lg_ctl_cfg_default();
@@ -345,9 +346,21 @@ static void test_status_worst_case_length(void) {
             c.last_verdict[d][i] = LG_VERDICT_FAILED;
         }
     }
+    /* Step 12 fields at their widest. */
+    for (d = 0; d < LG_DIR_COUNT; d++) {
+        c.sched_ok[d] = 1;
+        c.uncertain[d] = 1;
+        c.win[d].confirmed_island = 0xFFFFFFFFu;
+        c.win[d].confirmed_guard = 0xFFFFFFFFu;
+        for (i = 0; i < LG_WIN_MAX; i++) {
+            c.win[d].w[i].state = LG_WIN_OPEN;
+        }
+    }
+    c.sched_rejected = 0xFFFFFFFFu;
+    c.guard_confirms = 0xFFFFFFFFu;
     n = lg_ctl_text(&c, buf, sizeof buf);
     printf("status worst case: %u bytes\n", (unsigned)n);
-    CHECK(n < 800); /* well inside the 1024 of lg-meter, with room for later fields */
+    CHECK(n < 900); /* inside the 1024 of lg-meter (raised from 800 for the Step 12 fields) */
     CHECK(buf[n - 1] == '\n');
 }
 

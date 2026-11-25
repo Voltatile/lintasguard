@@ -23,6 +23,9 @@ lg_ctl_cfg_t lg_ctl_cfg_default(void) {
     c.health_silence_ms = LG_CTL_HEALTH_SILENCE_MS;
     c.health_required = 0;
     c.restarted = 0;
+    c.reserved_cfg[0] = 0;
+    c.reserved_cfg[1] = 0;
+    c.info_timeout_ms = LG_T_INFO_TIMEOUT_MS;
     return c;
 }
 
@@ -48,6 +51,10 @@ void lg_ctl_init(lg_ctl_t *c, const lg_ctl_cfg_t *cfg, uint32_t now_ms) {
         c->comp_verdict[d] = LG_VERDICT_FAILED; /* nothing known yet */
         c->health_trend_s[d] = -1;
     }
+    for (d = 0; d < LG_DIR_COUNT; d++) {
+        lg_win_init(&c->win[d]); /* no schedule information yet: schedule_ok stays 0 */
+    }
+    c->l3_dir = LG_CTL_EVENT_NO_SENSOR;
     if (cfg->restarted) {
         lg_mode_init_restarted(&c->mode, now_ms);
     } else {
@@ -136,6 +143,53 @@ int lg_ctl_on_health_verdict_flags(lg_ctl_t *c, uint8_t comp, uint8_t score, uin
 void lg_ctl_on_guard_ack(lg_ctl_t *c) {
     c->guard_ack_pending = 1;
     c->guard_acks++;
+}
+
+int lg_ctl_on_guard_confirm(lg_ctl_t *c, uint8_t dir) {
+    if (dir >= LG_DIR_COUNT) {
+        return -1;
+    }
+    c->guard_confirm_pending[dir] = 1;
+    c->guard_confirms++;
+    return 0;
+}
+
+/* Schedule times may lie at most this far from now (wrap-safe 32-bit arithmetic needs < 2^31 ms). */
+#define LG_CTL_SCHED_SPAN_MS (2u * LG_TT_ETA_MAX_MS)
+
+int lg_ctl_on_sched_reply(lg_ctl_t *c, const lg_sched_reply_t *r, uint32_t now_ms) {
+    lg_win_entry_t e[LG_SCHED_ENTRIES];
+    uint8_t i;
+
+    if (r == NULL || r->dir >= LG_DIR_COUNT || r->count > LG_SCHED_ENTRIES) {
+        c->sched_rejected++;
+        return -1;
+    }
+    for (i = 0; i < r->count; i++) {
+        const lg_sched_entry_t *s = &r->entry[i];
+        uint32_t eta_ms = (uint32_t)(s->eta_ns / 1000000ull);
+        int32_t dist = (int32_t)(uint32_t)(eta_ms - now_ms);
+
+        if (s->id == 0 || s->source > LG_SRC_STATION || s->confidence == 0 || s->confidence > 100 ||
+            s->lead_ms > LG_TT_LEAD_MAX_MS || s->tol_ms > LG_TT_TOL_MAX_MS ||
+            dist > (int32_t)LG_CTL_SCHED_SPAN_MS || dist < -(int32_t)LG_CTL_SCHED_SPAN_MS) {
+            c->sched_rejected++;
+            return -1;
+        }
+        memset(&e[i], 0, sizeof e[i]);
+        e[i].id = s->id;
+        e[i].source = s->source;
+        e[i].eta_ms = eta_ms;
+        e[i].lead_ms = s->lead_ms;
+        e[i].tol_ms = s->tol_ms;
+    }
+    lg_win_update(&c->win[r->dir], e, r->count);
+    if ((r->flags & LG_SCHED_INFO) != 0) {
+        c->sched_heard[r->dir] = 1;
+        c->sched_rx_ms[r->dir] = now_ms;
+    }
+    c->sched_rx++;
+    return 0;
 }
 
 static void stuck_new_process(lg_ctl_sensor_t *s);
@@ -367,6 +421,49 @@ static void ev_push_comp(lg_ctl_t *c, uint32_t now_ms, uint8_t kind, uint8_t sev
     e->value = value;
 }
 
+/* A notification for the station, the guard or the road sign about a direction (Step 12). */
+static void ev_push_to(lg_ctl_t *c, uint32_t now_ms, uint8_t target, uint8_t sev, uint8_t dir, uint8_t code) {
+    lg_ctl_event_t *e;
+
+    ev_push(c, now_ms, LG_EVT_NOTIFY, sev, c->mode.level, c->mode.level, dir, LG_CTL_EVENT_NO_SENSOR, code);
+    e = &c->ev[(c->events - 1u) % LG_CTL_EVENT_RING];
+    e->comp = LG_CTL_EVENT_NO_SENSOR;
+    e->target = target;
+}
+
+/*
+ * Level 3 notifications (README 3, 8.4) after a level change: entering level 3, leaving it downwards,
+ * and level 3 to 4 (the crossing is closed until a guard takes over).
+ */
+static void level3_events(lg_ctl_t *c, const lg_mode_result_t *mr, uint32_t now_ms) {
+    uint8_t d;
+
+    if (!mr->changed) {
+        return;
+    }
+    if (mr->to == LG_LEVEL_UNCERTAIN && mr->from != LG_LEVEL_UNCERTAIN) {
+        c->l3_dir = LG_CTL_EVENT_NO_SENSOR;
+        for (d = 0; d < LG_DIR_COUNT && c->l3_dir == LG_CTL_EVENT_NO_SENSOR; d++) {
+            if (c->uncertain[d]) {
+                c->l3_dir = d;
+            }
+        }
+        ev_push_to(c, now_ms, LG_CTL_TO_STATION, LG_SEV_URGENT, c->l3_dir, LG_CTL_DIAG_DETECTION_LOST);
+        ev_push_to(c, now_ms, LG_CTL_TO_GUARD, LG_SEV_URGENT, c->l3_dir, LG_CTL_DIAG_DETECTION_LOST);
+        ev_push_to(c, now_ms, LG_CTL_TO_ROAD_SIGN, LG_SEV_WARNING, c->l3_dir, LG_CTL_DIAG_DETECTION_LOST);
+    } else if (mr->from == LG_LEVEL_UNCERTAIN && mr->to < LG_LEVEL_UNCERTAIN) {
+        ev_push_to(c, now_ms, LG_CTL_TO_STATION, LG_SEV_INFO, c->l3_dir, LG_CTL_DIAG_NONE);
+        ev_push_to(c, now_ms, LG_CTL_TO_ROAD_SIGN, LG_SEV_INFO, c->l3_dir, LG_CTL_DIAG_NONE);
+    } else if (mr->from == LG_LEVEL_UNCERTAIN && mr->to == LG_LEVEL_FAILSAFE) {
+        uint8_t code = mr->reason == LG_REASON_DETECT_LOST_NO_INFO ? (uint8_t)LG_CTL_DIAG_NO_SCHEDULE
+                                                                   : (uint8_t)LG_CTL_DIAG_CROSSING_CLOSED;
+
+        ev_push_to(c, now_ms, LG_CTL_TO_STATION, LG_SEV_URGENT, c->l3_dir, code);
+        ev_push_to(c, now_ms, LG_CTL_TO_GUARD, LG_SEV_URGENT, c->l3_dir, code);
+        ev_push_to(c, now_ms, LG_CTL_TO_ROAD_SIGN, LG_SEV_URGENT, c->l3_dir, code);
+    }
+}
+
 /* The diagnosis code of the lg-health verdict of a component, as an lg_ctl_diag_t. */
 static uint8_t health_cause(const lg_ctl_t *c, uint8_t comp) {
     uint16_t d = c->health_diag[comp];
@@ -568,6 +665,9 @@ static void stall_shift(lg_ctl_t *c, uint32_t gap_ms) {
             shift_old(&c->clear[d].island_clear_since_ms, last, gap_ms);
         }
         shift_old(&c->last_approach_ms[d], last, gap_ms);
+        if (c->sched_heard[d]) {
+            shift_old(&c->sched_rx_ms[d], last, gap_ms); /* a silence clock (Step 12) */
+        }
     }
     if (c->gate_seen) {
         shift_old(&c->gate_rx_ms, last, gap_ms);
@@ -586,6 +686,13 @@ static void stall_shift(lg_ctl_t *c, uint32_t gap_ms) {
     if (c->mode.timing) {
         shift_old(&c->mode.since_ms, last, gap_ms);
     }
+}
+
+/* A sensor is lost for the level: verdict FAILED or its process not running (lg_mode_required). */
+static int sensor_lost_now(const lg_ctl_t *c, const lg_vsensor_t vs[LG_DIR_COUNT][LG_SENSOR_ID_COUNT], int d,
+                           int id) {
+    return vs[d][id].verdict == LG_VERDICT_FAILED ||
+           c->proc_state[LG_PROC_SENSOR_BASE + d * LG_SENSOR_ID_COUNT + id] != LG_PROC_RUNNING;
 }
 
 static lg_vsensor_t to_vsensor(const lg_ctl_sensor_t *s, uint8_t verdict, uint32_t now_ms) {
@@ -694,7 +801,12 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
         for (i = 0; i < LG_SENSOR_ID_COUNT; i++) {
             in.verdict[d * LG_SENSOR_ID_COUNT + i] = vs[d][i].verdict;
         }
-        in.schedule_ok[d] = 0; /* no lg-schedule before Step 12 */
+        /* Step 12: schedule information heard within info_timeout_ms, and lg-schedule not given up. */
+        c->sched_ok[d] = (uint8_t)(c->sched_heard[d] && !lg_elapsed_ge(now_ms, c->sched_rx_ms[d], c->cfg.info_timeout_ms) &&
+                                   c->proc_state[LG_PROC_SCHEDULE] != LG_PROC_DEAD);
+        in.schedule_ok[d] = c->sched_ok[d];
+        /* No trustworthy approach sensor (as the mode manager counts it: FAILED or process not running). */
+        c->uncertain[d] = (uint8_t)(sensor_lost_now(c, vs, d, LG_SENSOR_A) && sensor_lost_now(c, vs, d, LG_SENSOR_B));
     }
     if (gate_silent || gate_state == LG_GATE_FAULT) {
         in.verdict[LG_COMP_GATE] = LG_VERDICT_FAILED;
@@ -732,6 +844,15 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
 
         ev_push(c, now_ms, LG_EVT_LEVEL_CHANGE, sev, mr.from, mr.to, LG_CTL_EVENT_NO_SENSOR,
                 LG_CTL_EVENT_NO_SENSOR, mr.reason);
+        level3_events(c, &mr, now_ms);
+    }
+
+    /* Level 3 windows (Step 12): open the windows that are due in a direction without trustworthy
+     * approach detection; an OPEN window past its end tells the guard once. */
+    for (d = 0; d < LG_DIR_COUNT; d++) {
+        if (lg_win_tick(&c->win[d], c->uncertain[d], c->sensor[d][LG_SENSOR_ISLAND].axles, now_ms) > 0) {
+            ev_push_to(c, now_ms, LG_CTL_TO_GUARD, LG_SEV_WARNING, (uint8_t)d, LG_CTL_DIAG_TRAIN_OVERDUE);
+        }
     }
     out.level = c->mode.level;
     out.level_changed = mr.changed;
@@ -760,7 +881,8 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
         if (vote[d].approaching) {
             c->last_approach_ms[d] = now_ms;
         }
-        if (vote[d].approaching || transit[d]) {
+        c->win_active[d] = (uint8_t)lg_win_open(&c->win[d]);
+        if (vote[d].approaching || transit[d] || c->win_active[d]) {
             if (!c->active[d]) {
                 if (!c->was_active) {
                     c->active_since_ms = now_ms;
@@ -790,6 +912,10 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
         memset(&ci, 0, sizeof ci);
         ci.now_ms = now_ms;
         ci.level = c->mode.level;
+        /* An OPEN window is cleared by the level 3 rules even when the level went down meanwhile. */
+        if (c->win_active[d] && ci.level < LG_LEVEL_UNCERTAIN) {
+            ci.level = LG_LEVEL_UNCERTAIN;
+        }
         ci.island = vs[d][LG_SENSOR_ISLAND];
         ci.axle_counting_healthy = counting_ok[d];
         ci.axles_in = axles_in[d];
@@ -797,17 +923,40 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
         ci.other_dir_approaching = vote[1 - d].approaching;
         ci.gate_down = gate_down;
         ci.gate_down_since_ms = c->gate_down_since_ms;
-        ci.guard_confirm = 0; /* guard confirmation arrives with lgctl (Step 8, authenticated in 13) */
+        ci.guard_confirm = c->guard_confirm_pending[d]; /* counts only in level 3 (authenticated in Step 13) */
         unmet = lg_clear_step(&c->clear[d], &c->cfg.clear, &ci);
         if (vote[d].approaching ||
             !lg_elapsed_ge(now_ms, c->last_approach_ms[d], c->cfg.clear.t_clear_ms)) {
             unmet |= LG_CTL_UNMET_SAME_DIR;
         }
+        /* A window is confirmed by a train of THIS direction: the island sees trains of both directions,
+         * its per-direction axle count tells them apart (Step 12). A guard confirmation replaces it. */
+        if (c->win_active[d] && !ci.guard_confirm &&
+            !lg_win_axles_moved(&c->win[d], c->sensor[d][LG_SENSOR_ISLAND].axles)) {
+            unmet |= LG_CTL_UNMET_WINDOW;
+        }
         c->last_unmet[d] = unmet;
         if (unmet == 0) {
-            c->active[d] = 0;
-            out.cleared_mask |= (uint8_t)(1u << d);
+            if (ci.guard_confirm && ci.level == LG_LEVEL_UNCERTAIN) {
+                c->guard_confirms_used++;
+            }
+            if (c->win_active[d]) {
+                if (ci.guard_confirm) {
+                    (void)lg_win_confirm_guard(&c->win[d]);
+                } else {
+                    (void)lg_win_confirm_island(&c->win[d], c->sensor[d][LG_SENSOR_ISLAND].axles);
+                }
+                c->win_active[d] = (uint8_t)lg_win_open(&c->win[d]);
+                lg_clear_reset(&c->clear[d]); /* the next window needs its own sighting */
+            }
+            if (!c->win_active[d]) {
+                c->active[d] = 0;
+                out.cleared_mask |= (uint8_t)(1u << d);
+            }
         }
+    }
+    for (d = 0; d < LG_DIR_COUNT; d++) {
+        c->guard_confirm_pending[d] = 0; /* consumed: a confirmation is about the moment it is given */
     }
     for (d = 0; d < LG_DIR_COUNT; d++) {
         any_active = (uint8_t)(any_active || c->active[d]);
@@ -818,7 +967,8 @@ lg_ctl_out_t lg_ctl_step(lg_ctl_t *c, uint32_t now_ms) {
     }
 
     /* Gate, lights and bell. */
-    hold_down = (uint8_t)(c->mode.level >= LG_LEVEL_UNCERTAIN);
+    /* Level 4 holds the gate down. Level 3 lowers it per direction: timetable windows (Step 12). */
+    hold_down = (uint8_t)(c->mode.level >= LG_LEVEL_FAILSAFE);
     lower_due = (uint8_t)(any_active &&
                           (gate_state != LG_GATE_UP ||
                            lg_elapsed_ge(now_ms, c->active_since_ms,
@@ -879,11 +1029,25 @@ const char *lg_ctl_diag_name(uint8_t diag) {
     case LG_CTL_DIAG_RESTARTING: return "RESTARTING";
     case LG_CTL_DIAG_PROC_DEAD: return "PROC_DEAD";
     case LG_CTL_DIAG_GATE_FAULT: return "GATE_FAULT";
+    case LG_CTL_DIAG_DETECTION_LOST: return "DETECTION_LOST";
+    case LG_CTL_DIAG_NO_SCHEDULE: return "NO_SCHEDULE";
+    case LG_CTL_DIAG_TRAIN_OVERDUE: return "TRAIN_OVERDUE";
+    case LG_CTL_DIAG_CROSSING_CLOSED: return "CROSSING_CLOSED";
     default:
         if (diag >= LG_CTL_DIAG_HEALTH_BASE && diag < LG_CTL_DIAG_HEALTH_BASE + LG_DIAG_COUNT) {
             return lg_health_diag_name((uint16_t)(diag - LG_CTL_DIAG_HEALTH_BASE));
         }
         return "UNKNOWN";
+    }
+}
+
+const char *lg_ctl_target_name(uint8_t target) {
+    switch (target) {
+    case LG_CTL_TO_MAINTENANCE: return "maintenance";
+    case LG_CTL_TO_STATION: return "station";
+    case LG_CTL_TO_GUARD: return "guard";
+    case LG_CTL_TO_ROAD_SIGN: return "road_sign";
+    default: return "unknown";
     }
 }
 
@@ -901,6 +1065,12 @@ size_t lg_ctl_event_text(const lg_ctl_event_t *e, char *buf, size_t len) {
         n = snprintf(buf, len, "seq=%u t_ms=%u kind=LEVEL severity=%s from=%u to=%u reason=%u\n",
                      (unsigned)e->seq, (unsigned)e->t_ms, severity_name(e->severity),
                      (unsigned)e->level_from, (unsigned)e->level_to, (unsigned)e->code);
+    } else if (e->kind == LG_EVT_NOTIFY && e->target != LG_CTL_TO_MAINTENANCE) {
+        n = snprintf(buf, len, "seq=%u t_ms=%u kind=NOTIFY severity=%s to=%s sensor=none diag=%s level=%u "
+                     "component=none trend_s=-1 dir=%s\n",
+                     (unsigned)e->seq, (unsigned)e->t_ms, severity_name(e->severity), lg_ctl_target_name(e->target),
+                     lg_ctl_diag_name(e->code), (unsigned)e->level_to,
+                     e->dir < LG_DIR_COUNT ? dir_name(e->dir) : "none");
     } else if (e->kind == LG_EVT_NOTIFY && e->comp <= LG_COMP_SENSOR_LAST) {
         n = snprintf(buf, len, "seq=%u t_ms=%u kind=NOTIFY severity=%s to=maintenance sensor=%s/%s diag=%s "
                      "level=%u component=%s trend_s=%d\n",
@@ -965,7 +1135,9 @@ size_t lg_ctl_text(const lg_ctl_t *c, char *buf, size_t len) {
                  "gate_replies=%u gate_timeouts=%u sup_armed=%u sup_silent=%u proc_status_rx=%u "
                  "proc_status_rejected=%u proc_bad=0x%x guard_acks=%u tickets=%u sensor_failed=0x%x "
                  "events=%u unmet=0x%x,0x%x stalls=%u health_armed=%u health_silent=%u health_rx=%u "
-                 "health_rejected=%u comp_bad=0x%x warnings=%u lead_times=%u last_lead_time_ms=%u health_unassessed=%u\n",
+                 "health_rejected=%u comp_bad=0x%x warnings=%u lead_times=%u last_lead_time_ms=%u health_unassessed=%u "
+                 "sched_ok=%u,%u uncertain=%u,%u win_open=%u,%u win_island=%u,%u win_guard=%u,%u "
+                 "sched_rejected=%u guard_confirms=%u\n",
                  (unsigned)c->mode.level, (unsigned)c->mode.boot_lock,
                  lg_gate_state_name(c->gate_state), (unsigned)c->gate_silent,
                  c->last_gate_target == LG_GATE_TARGET_UP ? "UP" : "DOWN", (unsigned)c->last_lights,
@@ -978,7 +1150,12 @@ size_t lg_ctl_text(const lg_ctl_t *c, char *buf, size_t len) {
                  (unsigned)c->events, (unsigned)c->last_unmet[0], (unsigned)c->last_unmet[1],
                  (unsigned)c->stalls, (unsigned)c->health_armed, (unsigned)c->health_silent,
                  (unsigned)c->health_rx, (unsigned)c->health_rejected, comp_bad, (unsigned)c->warnings,
-                 (unsigned)c->lead_times, (unsigned)c->last_lead_time_ms, (unsigned)c->health_unassessed);
+                 (unsigned)c->lead_times, (unsigned)c->last_lead_time_ms, (unsigned)c->health_unassessed,
+                 (unsigned)c->sched_ok[0], (unsigned)c->sched_ok[1], (unsigned)c->uncertain[0],
+                 (unsigned)c->uncertain[1], (unsigned)lg_win_count(&c->win[0], LG_WIN_OPEN),
+                 (unsigned)lg_win_count(&c->win[1], LG_WIN_OPEN), (unsigned)c->win[0].confirmed_island,
+                 (unsigned)c->win[1].confirmed_island, (unsigned)c->win[0].confirmed_guard,
+                 (unsigned)c->win[1].confirmed_guard, (unsigned)c->sched_rejected, (unsigned)c->guard_confirms);
     if (n < 0) {
         buf[0] = '\0';
         return 0;

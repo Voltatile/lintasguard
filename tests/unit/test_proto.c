@@ -19,7 +19,12 @@ int main(void) {
     CHECK(offsetof(lg_guard_ack_t, hdr) == 0);
     CHECK(offsetof(lg_ack_t, hdr) == 0);
 
-    CHECK(LG_PROTO_VERSION == 5);
+    CHECK(LG_PROTO_VERSION == 6);
+    CHECK(offsetof(lg_sched_reply_t, entry) == 24);
+    CHECK(offsetof(lg_station_departure_t, hdr) == 0);
+    CHECK(LG_MSG_STATION_DEPARTURE == LG_MSG_TRUTH_REPLY + 1 && LG_MSG_STATION_DEPARTURE <= 0xFFFF);
+    CHECK(offsetof(lg_guard_ack_t, dir) == offsetof(lg_guard_ack_t, action) + 1);
+    CHECK(LG_SCHED_ENTRIES * sizeof(lg_sched_entry_t) + 24 == sizeof(lg_sched_reply_t));
     CHECK(offsetof(lg_health_verdict_t, trend_s_to_failure) == 24);
     CHECK(LG_DIAG_COUNT < 0x10000); /* diagnosis_code is 16 bits */
 

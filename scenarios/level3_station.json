@@ -1,0 +1,8 @@
+{
+  "name": "level3_station",
+  "trains": [
+    { "id": 1, "dir": "west", "t_strike_s": 194, "speed_mps": 25, "length_m": 120, "axles": 8 },
+    { "id": 2, "dir": "east", "t_strike_s": 260, "speed_mps": 22, "length_m": 130, "axles": 8 },
+    { "id": 3, "dir": "west", "t_strike_s": 384, "speed_mps": 25, "length_m": 100, "axles": 6 }
+  ]
+}

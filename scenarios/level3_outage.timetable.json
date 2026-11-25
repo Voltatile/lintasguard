@@ -1,0 +1,9 @@
+{
+  "name": "level3_outage: short windows (lead 20 s, tolerance 30 s) for the Step 12 target test part B. Entry 7 is a cancelled West train (window 50 .. 100 s, no train); entry 1 is the East train (arrival 36 s)",
+  "lead_s": 20,
+  "tolerance_s": 30,
+  "trains": [
+    { "id": 1, "dir": "east", "eta_s": 36 },
+    { "id": 7, "dir": "west", "eta_s": 70 }
+  ]
+}
